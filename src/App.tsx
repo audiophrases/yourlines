@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store/useStore';
-import { relativeTime } from './lib/storage';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
+import { ProfileBar } from './components/ProfileBar';
 import { DebugPanel } from './components/DebugPanel';
 import { Board } from './components/Board';
 import { LinePanel } from './components/LinePanel';
@@ -64,7 +64,7 @@ export default function App() {
           <Restoring />
         ) : hasData ? (
           <>
-            <SavedStrip />
+            <ProfileBar />
             <Workspace />
           </>
         ) : (
@@ -82,59 +82,6 @@ function Restoring() {
       <span className="h-6 w-6 animate-spin rounded-full border-2 border-ink-600 border-t-amber" />
       <span className="text-sm">Restoring your games…</span>
     </main>
-  );
-}
-
-function SavedStrip() {
-  const savedAt = useStore((s) => s.savedAt);
-  const username = useStore((s) => s.username);
-  const site = useStore((s) => s.site);
-  const status = useStore((s) => s.status);
-  const error = useStore((s) => s.error);
-  const gameCount = useStore((s) => s.games.length);
-  const progress = useStore((s) => s.progress);
-  const lastAdded = useStore((s) => s.lastAdded);
-  const refresh = useStore((s) => s.refresh);
-  const clearSaved = useStore((s) => s.clearSaved);
-  const loading = status === 'loading';
-
-  if (!savedAt) return null;
-
-  return (
-    <div className="mx-auto w-full max-w-[1400px] px-4 pt-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-ink-800 bg-ink-850/50 px-3 py-1.5 text-xs text-mist-500">
-        <span className="text-emerald">●</span>
-        <span>
-          <span className="text-mist-300">{gameCount.toLocaleString()} games</span> ·{' '}
-          {site === 'lichess' ? 'lichess' : 'chess.com'}/{username} · saved {relativeTime(savedAt)}
-        </span>
-        {loading && (
-          <span className="text-amber">· fetching newest… {progress || 0}</span>
-        )}
-        {!loading && lastAdded !== undefined && (
-          <span className="text-emerald">
-            · {lastAdded > 0 ? `+${lastAdded} new` : 'up to date'}
-          </span>
-        )}
-        {error && <span className="text-rose">· {error}</span>}
-        <div className="ml-auto flex gap-1.5">
-          <button
-            onClick={() => refresh()}
-            disabled={loading}
-            title="Fetch only games newer than the last import"
-            className="rounded-md border border-ink-700 bg-ink-800 px-2 py-0.5 text-mist-300 transition-colors hover:text-mist-100 disabled:opacity-50"
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button
-            onClick={() => clearSaved()}
-            className="rounded-md border border-ink-700 bg-ink-800 px-2 py-0.5 text-mist-400 transition-colors hover:border-rose/40 hover:text-rose"
-          >
-            Clear
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 

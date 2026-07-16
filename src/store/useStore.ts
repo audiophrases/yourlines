@@ -1,14 +1,24 @@
 import { create } from 'zustand';
 import { Chess } from 'chess.js';
 import { importGames, ImportError } from '../lib/chessApi';
-import { loadSession, saveSession, clearSession, newestTimestamp } from '../lib/storage';
-import { logInfo, logError } from '../lib/debug';
+import {
+  listProfiles,
+  loadProfile,
+  loadActiveProfile,
+  saveProfile,
+  deleteProfile,
+  setActiveKey,
+  newestTimestamp,
+  importBackup,
+  type ProfileSummary,
+} from '../lib/storage';
 import {
   buildTree,
   summarizeOpenings,
   findWeaknesses,
   type OpeningStat,
 } from '../lib/tree';
+import { logInfo, logError } from '../lib/debug';
 import type { Color, Game, Site, TreeNode, Weakness } from '../lib/types';
 
 export interface Repertoire {
@@ -31,36 +41,32 @@ interface State {
   repertoires: Record<Color, Repertoire> | null;
   color: Color;
 
-  /** When the currently-loaded games were imported (ms epoch), if persisted. */
+  /** All cached accounts, most-recently-saved first. */
+  profiles: ProfileSummary[];
+  /** The active profile key ("site:username"), or null when none loaded. */
+  activeKey: string | null;
+
   savedAt?: number;
-  /** Newest game timestamp across the loaded games — cursor for incremental refresh. */
   newestAt?: number;
-  /** Games added by the most recent refresh (for a brief "+N new" note). */
   lastAdded?: number;
-  /** Whether we've attempted to restore from storage this session. */
   hydrated: boolean;
-  /** True until the initial restore-from-storage attempt completes. */
   hydrating: boolean;
 
-  /** Current line from the start position (SAN moves). */
   path: string[];
-  /** FEN for the current position (kept in sync with path). */
   fen: string;
 
-  /** Whether the Stockfish eval bar / analysis is switched on. */
   engineOn: boolean;
   setEngineOn: (b: boolean) => void;
 
   setSite: (s: Site) => void;
   setUsername: (u: string) => void;
-  /** Full import of all games for the current site/username. */
   runImport: () => Promise<void>;
-  /** Incremental update: fetch only games newer than the cursor and merge. */
   refresh: () => Promise<void>;
-  /** Restore a previous import from storage (idempotent). */
   hydrate: () => Promise<void>;
-  /** Forget the persisted import and reset to the landing screen. */
+  switchProfile: (key: string) => Promise<void>;
+  removeProfile: (key: string) => Promise<void>;
   clearSaved: () => Promise<void>;
+  importBackupFile: (json: string) => Promise<number>;
   setColor: (c: Color) => void;
 
   navTo: (path: string[]) => void;
@@ -119,215 +125,272 @@ function buildAll(games: Game[]): {
   return { repertoires, color };
 }
 
-export const useStore = create<State>((set, get) => ({
-  site: 'chesscom',
-  username: '',
-  status: 'idle',
-  progress: 0,
-
-  games: [],
-  repertoires: null,
-  color: 'white',
-  savedAt: undefined,
-  newestAt: undefined,
-  lastAdded: undefined,
-  hydrated: false,
-  hydrating: true,
-
-  path: [],
-  fen: START_FEN,
-
-  engineOn: false,
-  setEngineOn: (engineOn) => set({ engineOn }),
-
-  setSite: (site) => set({ site }),
-  setUsername: (username) => set({ username }),
-
-  runImport: async () => {
-    const { site, username } = get();
-    logInfo('import', `Full import started: ${site}/${username}`);
-    set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
-    try {
-      const games = await importGames(site, username, {
-        max: 'all',
-        onProgress: (n) => set({ progress: n }),
-      });
-      if (!games.length) {
-        logError('import', `No standard games for ${site}/${username}`);
-        set({ status: 'error', error: 'No standard games found for that account.' });
-        return;
-      }
-      const { repertoires, color } = buildAll(games);
-      const savedAt = Date.now();
-      const newestAt = newestTimestamp(games);
-      // Persist the raw games so a reload restores instantly without re-fetching.
-      const stored = await saveSession({ site, username, games, savedAt, newestAt });
-      if (!stored) logError('storage', 'Failed to persist games (storage unavailable)');
-      logInfo(
-        'import',
-        `Imported ${games.length} games (W:${repertoires.white.games} B:${repertoires.black.games}) from ${site}/${username}`,
-      );
-      set({
-        games,
-        repertoires,
-        color,
-        status: 'ready',
-        path: [],
-        fen: START_FEN,
-        savedAt,
-        newestAt,
-        hydrated: true,
-        hydrating: false,
-      });
-    } catch (e) {
-      const msg =
-        e instanceof ImportError
-          ? e.message
-          : 'Something went wrong importing games. Check the username and try again.';
-      logError('import', `Import failed: ${msg}`, e);
-      set({ status: 'error', error: msg });
-    }
-  },
-
-  refresh: async () => {
-    const { site, username, games: existing, newestAt, color } = get();
-    if (!username || !existing.length) {
-      // Nothing cached yet — treat as a full import.
-      return get().runImport();
-    }
-    logInfo('refresh', `Refresh started: ${site}/${username} (since ${newestAt ?? 0})`);
-    set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
-    try {
-      const fresh = await importGames(site, username, {
-        max: 'all',
-        since: newestAt,
-        onProgress: (n) => set({ progress: n }),
-      });
-      const byId = new Map(existing.map((g) => [g.id, g]));
-      let added = 0;
-      for (const g of fresh) {
-        if (!byId.has(g.id)) {
-          byId.set(g.id, g);
-          added++;
-        }
-      }
-      const merged = added ? [...byId.values()] : existing;
-      const { repertoires } = buildAll(merged);
-      const savedAt = Date.now();
-      const newest = newestTimestamp(merged);
-      await saveSession({ site, username, games: merged, savedAt, newestAt: newest });
-      logInfo('refresh', `+${added} new games (total ${merged.length})`);
-      set({
-        games: merged,
-        repertoires,
-        color,
-        status: 'ready',
-        savedAt,
-        newestAt: newest,
-        lastAdded: added,
-        path: [],
-        fen: START_FEN,
-      });
-    } catch (e) {
-      const msg =
-        e instanceof ImportError
-          ? e.message
-          : 'Refresh failed. Your cached games are still here — try again.';
-      logError('refresh', `Refresh failed: ${msg}`, e);
-      // Keep existing data; just surface the error.
-      set({ status: 'ready', error: msg });
-    }
-  },
-
-  hydrate: async () => {
-    if (get().hydrated) return;
-    set({ hydrated: true });
-    try {
-      const saved = await loadSession();
-      if (!saved) {
-        set({ hydrating: false });
-        return;
-      }
-      const { repertoires, color } = buildAll(saved.games);
-      logInfo(
-        'hydrate',
-        `Restored ${saved.games.length} games for ${saved.site}/${saved.username} from cache`,
-      );
-      set({
-        site: saved.site,
-        username: saved.username,
-        games: saved.games,
-        repertoires,
-        color,
-        status: 'ready',
-        savedAt: saved.savedAt,
-        newestAt: saved.newestAt ?? newestTimestamp(saved.games),
-        path: [],
-        fen: START_FEN,
-        hydrating: false,
-      });
-    } catch (e) {
-      logError('hydrate', 'Failed to restore cached games', e);
-      set({ hydrating: false });
-    }
-  },
-
-  clearSaved: async () => {
-    await clearSession();
+export const useStore = create<State>((set, get) => {
+  /** Load a profile from storage into the active view. */
+  const activate = (p: {
+    key: string;
+    site: Site;
+    username: string;
+    games: Game[];
+    savedAt: number;
+    newestAt?: number;
+  }) => {
+    const { repertoires, color } = buildAll(p.games);
     set({
-      games: [],
-      repertoires: null,
-      status: 'idle',
-      error: undefined,
-      savedAt: undefined,
-      newestAt: undefined,
+      activeKey: p.key,
+      site: p.site,
+      username: p.username,
+      games: p.games,
+      repertoires,
+      color,
+      status: 'ready',
+      savedAt: p.savedAt,
+      newestAt: p.newestAt,
       lastAdded: undefined,
+      error: undefined,
       path: [],
       fen: START_FEN,
     });
-  },
+  };
 
-  setColor: (color) => set({ color, path: [], fen: START_FEN }),
+  return {
+    site: 'chesscom',
+    username: '',
+    status: 'idle',
+    progress: 0,
 
-  navTo: (path) => set({ path, fen: fenForPath(path) }),
+    games: [],
+    repertoires: null,
+    color: 'white',
 
-  push: (san) => {
-    const { path } = get();
-    const c = new Chess();
-    for (const m of path) {
+    profiles: [],
+    activeKey: null,
+
+    savedAt: undefined,
+    newestAt: undefined,
+    lastAdded: undefined,
+    hydrated: false,
+    hydrating: true,
+
+    path: [],
+    fen: START_FEN,
+
+    engineOn: false,
+    setEngineOn: (engineOn) => set({ engineOn }),
+
+    setSite: (site) => set({ site }),
+    setUsername: (username) => set({ username }),
+
+    runImport: async () => {
+      const { site, username } = get();
+      logInfo('import', `Full import started: ${site}/${username}`);
+      set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
       try {
-        c.move(m);
+        const games = await importGames(site, username, {
+          max: 'all',
+          onProgress: (n) => set({ progress: n }),
+        });
+        if (!games.length) {
+          logError('import', `No standard games for ${site}/${username}`);
+          set({ status: 'error', error: 'No standard games found for that account.' });
+          return;
+        }
+        const savedAt = Date.now();
+        const newestAt = newestTimestamp(games);
+        const summary = await saveProfile({ site, username, games, savedAt, newestAt });
+        const profiles = await listProfiles();
+        const { repertoires, color } = buildAll(games);
+        logInfo(
+          'import',
+          `Imported ${games.length} games (W:${repertoires.white.games} B:${repertoires.black.games}) for ${summary.key}`,
+        );
+        set({
+          games,
+          repertoires,
+          color,
+          status: 'ready',
+          path: [],
+          fen: START_FEN,
+          savedAt,
+          newestAt,
+          activeKey: summary.key,
+          username: summary.username,
+          profiles,
+          hydrated: true,
+          hydrating: false,
+        });
+      } catch (e) {
+        const msg =
+          e instanceof ImportError
+            ? e.message
+            : 'Something went wrong importing games. Check the username and try again.';
+        logError('import', `Import failed: ${msg}`, e);
+        set({ status: 'error', error: msg });
+      }
+    },
+
+    refresh: async () => {
+      const { site, username, games: existing, newestAt, color } = get();
+      if (!username || !existing.length) return get().runImport();
+      logInfo('refresh', `Refresh started: ${site}/${username} (since ${newestAt ?? 0})`);
+      set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
+      try {
+        const fresh = await importGames(site, username, {
+          max: 'all',
+          since: newestAt,
+          onProgress: (n) => set({ progress: n }),
+        });
+        const byId = new Map(existing.map((g) => [g.id, g]));
+        let added = 0;
+        for (const g of fresh) {
+          if (!byId.has(g.id)) {
+            byId.set(g.id, g);
+            added++;
+          }
+        }
+        const merged = added ? [...byId.values()] : existing;
+        const savedAt = Date.now();
+        const newest = newestTimestamp(merged);
+        await saveProfile({ site, username, games: merged, savedAt, newestAt: newest });
+        const profiles = await listProfiles();
+        const { repertoires } = buildAll(merged);
+        logInfo('refresh', `+${added} new games (total ${merged.length})`);
+        set({
+          games: merged,
+          repertoires,
+          color,
+          status: 'ready',
+          savedAt,
+          newestAt: newest,
+          lastAdded: added,
+          profiles,
+          path: [],
+          fen: START_FEN,
+        });
+      } catch (e) {
+        const msg =
+          e instanceof ImportError
+            ? e.message
+            : 'Refresh failed. Your cached games are still here — try again.';
+        logError('refresh', `Refresh failed: ${msg}`, e);
+        set({ status: 'ready', error: msg });
+      }
+    },
+
+    hydrate: async () => {
+      if (get().hydrated) return;
+      set({ hydrated: true });
+      try {
+        const profiles = await listProfiles();
+        const active = await loadActiveProfile();
+        if (!active) {
+          set({ profiles, hydrating: false });
+          return;
+        }
+        logInfo('hydrate', `Restored ${active.games.length} games for ${active.key}`);
+        activate(active);
+        set({ profiles, hydrating: false });
+      } catch (e) {
+        logError('hydrate', 'Failed to restore cached games', e);
+        set({ hydrating: false });
+      }
+    },
+
+    switchProfile: async (key) => {
+      if (key === get().activeKey) return;
+      const p = await loadProfile(key);
+      if (!p) return;
+      await setActiveKey(key);
+      logInfo('profile', `Switched to ${key} (${p.games.length} games)`);
+      activate(p);
+    },
+
+    removeProfile: async (key) => {
+      await deleteProfile(key);
+      const profiles = await listProfiles();
+      if (get().activeKey === key) {
+        const active = await loadActiveProfile();
+        if (active) {
+          activate(active);
+          set({ profiles });
+        } else {
+          set({
+            profiles,
+            activeKey: null,
+            games: [],
+            repertoires: null,
+            status: 'idle',
+            savedAt: undefined,
+            newestAt: undefined,
+            lastAdded: undefined,
+            error: undefined,
+            path: [],
+            fen: START_FEN,
+          });
+        }
+      } else {
+        set({ profiles });
+      }
+    },
+
+    clearSaved: async () => {
+      const key = get().activeKey;
+      if (key) await get().removeProfile(key);
+    },
+
+    importBackupFile: async (json) => {
+      const n = await importBackup(json);
+      const profiles = await listProfiles();
+      set({ profiles });
+      if (!get().activeKey && profiles.length) {
+        await get().switchProfile(profiles[0].key);
+      }
+      logInfo('backup', `Imported ${n} profile(s) from backup`);
+      return n;
+    },
+
+    setColor: (color) => set({ color, path: [], fen: START_FEN }),
+
+    navTo: (path) => set({ path, fen: fenForPath(path) }),
+
+    push: (san) => {
+      const { path } = get();
+      const c = new Chess();
+      for (const m of path) {
+        try {
+          c.move(m);
+        } catch {
+          return false;
+        }
+      }
+      try {
+        const mv = c.move(san);
+        if (!mv) return false;
+        set({ path: [...path, mv.san], fen: c.fen() });
+        return true;
       } catch {
         return false;
       }
-    }
-    try {
-      const mv = c.move(san);
-      if (!mv) return false;
-      set({ path: [...path, mv.san], fen: c.fen() });
-      return true;
-    } catch {
-      return false;
-    }
-  },
+    },
 
-  pop: () => {
-    const { path } = get();
-    if (!path.length) return;
-    const next = path.slice(0, -1);
-    set({ path: next, fen: fenForPath(next) });
-  },
+    pop: () => {
+      const { path } = get();
+      if (!path.length) return;
+      const next = path.slice(0, -1);
+      set({ path: next, fen: fenForPath(next) });
+    },
 
-  toStart: () => set({ path: [], fen: START_FEN }),
+    toStart: () => set({ path: [], fen: START_FEN }),
 
-  current: () => {
-    const { repertoires, color, path } = get();
-    if (!repertoires) return null;
-    return nodeAtPath(repertoires[color].tree, path);
-  },
+    current: () => {
+      const { repertoires, color, path } = get();
+      if (!repertoires) return null;
+      return nodeAtPath(repertoires[color].tree, path);
+    },
 
-  repertoire: () => {
-    const { repertoires, color } = get();
-    return repertoires ? repertoires[color] : null;
-  },
-}));
+    repertoire: () => {
+      const { repertoires, color } = get();
+      return repertoires ? repertoires[color] : null;
+    },
+  };
+});

@@ -12,6 +12,10 @@ pinpoint where you drift off.
   public APIs (no login, no keys). Games are cached in **IndexedDB**, so a reload
   restores instantly with no re-fetch, and **Refresh** pulls only games newer than
   your last import. Runs entirely in the browser.
+- **Multiple accounts** — import as many accounts as you like; each is cached
+  separately and you switch between them instantly. **Export / Import** produces a
+  single JSON backup (also the future cloud-sync payload) for moving data between
+  browsers or devices.
 - **Named lines tree** — aggregates your games into an opening tree. Every move is
   labelled with its ECO opening name, refined from general → specific as you go
   deeper (e.g. _Sicilian Defense › Najdorf Variation › English Attack_).
