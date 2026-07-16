@@ -3,6 +3,7 @@
 // therefore no COOP/COEP headers — which is important because those headers
 // would break the cross-origin fetches to the Chess.com / Lichess APIs.
 import type { Color } from './types';
+import { logError, logInfo } from './debug';
 
 export interface EngineLine {
   depth: number;
@@ -53,17 +54,20 @@ class Engine {
           } else if (line.includes('readyok')) {
             w.removeEventListener('message', onHandshake);
             w.addEventListener('message', (ev) => this.onLine(String(ev.data)));
+            logInfo('engine', 'Stockfish ready');
             resolve();
           }
         };
         w.addEventListener('message', onHandshake);
         w.addEventListener('error', (err) => {
           this.failed = true;
+          logError('engine', 'Stockfish worker error', (err as ErrorEvent)?.message ?? err);
           reject(err);
         });
         w.postMessage('uci');
       } catch (e) {
         this.failed = true;
+        logError('engine', 'Failed to start Stockfish worker', e);
         reject(e);
       }
     });

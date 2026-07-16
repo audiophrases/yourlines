@@ -22,6 +22,12 @@ Separate White and Black repertoires; toggle between them.
 
 ## Run it
 
+**Windows:** double-click **`yourlines.bat`** — it checks Node, installs deps on
+first run, stops any previous instance still on port 5173, then starts the app
+and opens your browser.
+
+**Any platform:**
+
 ```bash
 npm install
 npm run dev      # http://localhost:5173
@@ -32,6 +38,17 @@ Try it with `Hikaru` / `MagnusCarlsen` (Chess.com) or `DrNykterstein` (Lichess).
 ```bash
 npm run build    # typecheck + production bundle
 ```
+
+> Open the served URL (`http://localhost:5173`) — opening `index.html` as a file
+> gives a blank page, since the app must be served.
+
+## Alpha debug logging
+
+While `ALPHA` is `true` (see `src/lib/debug.ts`), the app captures uncaught
+errors, unhandled rejections, failed imports, and engine problems into a capped,
+`localStorage`-persisted log. A **🐞 alpha** badge (bottom-right) opens a panel to
+view / copy / download / clear entries, or grab them from the console via
+`window.yourlines.export()`. Set `ALPHA = false` to ship without it.
 
 ## How it's built
 

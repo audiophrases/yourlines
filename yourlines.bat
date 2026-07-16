@@ -14,6 +14,10 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM --- Stop any previous instance still holding the dev port (5173) --------
+echo   Checking for a previous instance on port 5173...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Write-Host ('   Stopping previous instance (PID ' + $_ + ')'); Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
+
 REM --- Install dependencies on first run -----------------------------------
 if not exist "node_modules\" (
   echo.

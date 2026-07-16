@@ -3,6 +3,7 @@ import { useStore } from './store/useStore';
 import { relativeTime } from './lib/storage';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
+import { DebugPanel } from './components/DebugPanel';
 import { Board } from './components/Board';
 import { LinePanel } from './components/LinePanel';
 import { OpeningTree } from './components/OpeningTree';
@@ -67,6 +68,7 @@ export default function App() {
           <Landing />
         )}
       </div>
+      <DebugPanel />
     </EvalProvider>
   );
 }

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { Chess } from 'chess.js';
 import { importGames, ImportError } from '../lib/chessApi';
 import { loadSession, saveSession, clearSession } from '../lib/storage';
+import { logInfo, logError } from '../lib/debug';
 import {
   buildTree,
   summarizeOpenings,
@@ -132,19 +133,26 @@ export const useStore = create<State>((set, get) => ({
 
   runImport: async () => {
     const { site, username } = get();
+    logInfo('import', `Import started: ${site}/${username}`);
     set({ status: 'loading', error: undefined, progress: 0 });
     try {
       const games = await importGames(site, username, {
         onProgress: (n) => set({ progress: n }),
       });
       if (!games.length) {
+        logError('import', `No standard games for ${site}/${username}`);
         set({ status: 'error', error: 'No standard games found for that account.' });
         return;
       }
       const { repertoires, color } = buildAll(games);
       const savedAt = Date.now();
       // Persist the raw games so a reload restores instantly without re-fetching.
-      saveSession({ site, username, games, savedAt });
+      const stored = saveSession({ site, username, games, savedAt });
+      if (!stored) logError('storage', 'Failed to persist games (quota or unavailable)');
+      logInfo(
+        'import',
+        `Imported ${games.length} games (W:${repertoires.white.games} B:${repertoires.black.games}) from ${site}/${username}`,
+      );
       set({
         games,
         repertoires,
@@ -160,6 +168,7 @@ export const useStore = create<State>((set, get) => ({
         e instanceof ImportError
           ? e.message
           : 'Something went wrong importing games. Check the username and try again.';
+      logError('import', `Import failed: ${msg}`, e);
       set({ status: 'error', error: msg });
     }
   },
@@ -170,6 +179,7 @@ export const useStore = create<State>((set, get) => ({
     const saved = loadSession();
     if (!saved) return;
     const { repertoires, color } = buildAll(saved.games);
+    logInfo('hydrate', `Restored ${saved.games.length} games for ${saved.site}/${saved.username} from cache`);
     set({
       site: saved.site,
       username: saved.username,
