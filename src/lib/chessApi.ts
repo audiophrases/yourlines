@@ -2,7 +2,11 @@ import { Chess } from 'chess.js';
 import type { Color, Game, GameResult, Site } from './types';
 
 export interface ImportOptions {
-  maxGames?: number;
+  /** Max games to fetch. A number caps it; 'all' (default) fetches everything
+   *  up to a safety ceiling. */
+  max?: number | 'all';
+  /** Only fetch games newer than this timestamp (ms epoch) — incremental refresh. */
+  since?: number;
   signal?: AbortSignal;
   /** Called as games stream in, with the running total so far. */
   onProgress?: (loaded: number, note?: string) => void;
@@ -10,7 +14,17 @@ export interface ImportOptions {
 
 export class ImportError extends Error {}
 
-const DEFAULT_MAX = 300;
+/** Absolute ceiling so an enormous account can't hang the tab / fill the disk. */
+const HARD_MAX = 25000;
+
+function effectiveMax(max: number | 'all' | undefined): number {
+  return typeof max === 'number' ? max : HARD_MAX;
+}
+
+/** Year*12 + month (0-based) index for cheap month comparisons. */
+function monthIndex(y: number, m0: number): number {
+  return y * 12 + m0;
+}
 
 /** Chess.com result strings that mean the game was drawn. */
 const CHESSCOM_DRAWS = new Set([
@@ -38,10 +52,12 @@ export async function importGames(
 // The JSON export gives SAN moves directly in a `moves` string, so no PGN
 // parsing is needed. We stream ndjson so results appear as they arrive.
 async function importLichess(user: string, opts: ImportOptions): Promise<Game[]> {
-  const max = opts.maxGames ?? DEFAULT_MAX;
-  const url =
+  const cap = effectiveMax(opts.max);
+  let url =
     `https://lichess.org/api/games/user/${encodeURIComponent(user)}` +
-    `?max=${max}&moves=true&pgnInJson=false&clocks=false&evals=false&opening=false&rated=true`;
+    `?moves=true&pgnInJson=false&clocks=false&evals=false&opening=false&rated=true`;
+  if (typeof opts.max === 'number') url += `&max=${opts.max}`;
+  if (opts.since) url += `&since=${opts.since}`;
 
   const res = await fetch(url, {
     headers: { Accept: 'application/x-ndjson' },
@@ -80,6 +96,10 @@ async function importLichess(user: string, opts: ImportOptions): Promise<Game[]>
     while ((nl = buffer.indexOf('\n')) !== -1) {
       flush(buffer.slice(0, nl));
       buffer = buffer.slice(nl + 1);
+    }
+    if (games.length >= cap) {
+      await reader.cancel().catch(() => {});
+      return games;
     }
   }
   flush(buffer);
@@ -143,7 +163,7 @@ interface ChesscomGame {
 }
 
 async function importChesscom(user: string, opts: ImportOptions): Promise<Game[]> {
-  const max = opts.maxGames ?? DEFAULT_MAX;
+  const cap = effectiveMax(opts.max);
   const archivesRes = await fetch(
     `https://api.chess.com/pub/player/${encodeURIComponent(user.toLowerCase())}/games/archives`,
     { signal: opts.signal },
@@ -153,16 +173,28 @@ async function importChesscom(user: string, opts: ImportOptions): Promise<Game[]
   const { archives } = (await archivesRes.json()) as { archives: string[] };
   if (!archives?.length) return [];
 
+  // For incremental refresh, skip whole archive months older than the cursor.
+  const sinceMonth = opts.since
+    ? monthIndex(new Date(opts.since).getUTCFullYear(), new Date(opts.since).getUTCMonth())
+    : -Infinity;
+
   const games: Game[] = [];
-  // Newest month first so recent play dominates the sample.
+  // Newest month first so recent play dominates and we can stop early.
   for (const archiveUrl of [...archives].reverse()) {
-    if (games.length >= max) break;
+    if (games.length >= cap) break;
+    const parts = archiveUrl.split('/');
+    const y = Number(parts[parts.length - 2]);
+    const m = Number(parts[parts.length - 1]); // 1-based
+    if (Number.isFinite(y) && Number.isFinite(m) && monthIndex(y, m - 1) < sinceMonth) break;
+
     const res = await fetch(archiveUrl, { signal: opts.signal });
     if (!res.ok) continue;
     const { games: monthly } = (await res.json()) as { games: ChesscomGame[] };
     // Within a month, newest last — reverse for recency.
     for (const raw of [...(monthly ?? [])].reverse()) {
-      if (games.length >= max) break;
+      if (games.length >= cap) break;
+      // Skip games we already have (older than the cursor).
+      if (opts.since && (raw.end_time ?? 0) * 1000 <= opts.since) continue;
       const g = fromChesscom(raw, user);
       if (g) {
         games.push(g);

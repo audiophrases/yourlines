@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Chess } from 'chess.js';
 import { importGames, ImportError } from '../lib/chessApi';
-import { loadSession, saveSession, clearSession } from '../lib/storage';
+import { loadSession, saveSession, clearSession, newestTimestamp } from '../lib/storage';
 import { logInfo, logError } from '../lib/debug';
 import {
   buildTree,
@@ -33,8 +33,14 @@ interface State {
 
   /** When the currently-loaded games were imported (ms epoch), if persisted. */
   savedAt?: number;
-  /** Whether we've attempted to restore from localStorage this session. */
+  /** Newest game timestamp across the loaded games — cursor for incremental refresh. */
+  newestAt?: number;
+  /** Games added by the most recent refresh (for a brief "+N new" note). */
+  lastAdded?: number;
+  /** Whether we've attempted to restore from storage this session. */
   hydrated: boolean;
+  /** True until the initial restore-from-storage attempt completes. */
+  hydrating: boolean;
 
   /** Current line from the start position (SAN moves). */
   path: string[];
@@ -47,11 +53,14 @@ interface State {
 
   setSite: (s: Site) => void;
   setUsername: (u: string) => void;
+  /** Full import of all games for the current site/username. */
   runImport: () => Promise<void>;
-  /** Restore a previous import from localStorage (idempotent). */
-  hydrate: () => void;
+  /** Incremental update: fetch only games newer than the cursor and merge. */
+  refresh: () => Promise<void>;
+  /** Restore a previous import from storage (idempotent). */
+  hydrate: () => Promise<void>;
   /** Forget the persisted import and reset to the landing screen. */
-  clearSaved: () => void;
+  clearSaved: () => Promise<void>;
   setColor: (c: Color) => void;
 
   navTo: (path: string[]) => void;
@@ -120,7 +129,10 @@ export const useStore = create<State>((set, get) => ({
   repertoires: null,
   color: 'white',
   savedAt: undefined,
+  newestAt: undefined,
+  lastAdded: undefined,
   hydrated: false,
+  hydrating: true,
 
   path: [],
   fen: START_FEN,
@@ -133,10 +145,11 @@ export const useStore = create<State>((set, get) => ({
 
   runImport: async () => {
     const { site, username } = get();
-    logInfo('import', `Import started: ${site}/${username}`);
-    set({ status: 'loading', error: undefined, progress: 0 });
+    logInfo('import', `Full import started: ${site}/${username}`);
+    set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
     try {
       const games = await importGames(site, username, {
+        max: 'all',
         onProgress: (n) => set({ progress: n }),
       });
       if (!games.length) {
@@ -146,9 +159,10 @@ export const useStore = create<State>((set, get) => ({
       }
       const { repertoires, color } = buildAll(games);
       const savedAt = Date.now();
+      const newestAt = newestTimestamp(games);
       // Persist the raw games so a reload restores instantly without re-fetching.
-      const stored = saveSession({ site, username, games, savedAt });
-      if (!stored) logError('storage', 'Failed to persist games (quota or unavailable)');
+      const stored = await saveSession({ site, username, games, savedAt, newestAt });
+      if (!stored) logError('storage', 'Failed to persist games (storage unavailable)');
       logInfo(
         'import',
         `Imported ${games.length} games (W:${repertoires.white.games} B:${repertoires.black.games}) from ${site}/${username}`,
@@ -161,7 +175,9 @@ export const useStore = create<State>((set, get) => ({
         path: [],
         fen: START_FEN,
         savedAt,
+        newestAt,
         hydrated: true,
+        hydrating: false,
       });
     } catch (e) {
       const msg =
@@ -173,34 +189,99 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  hydrate: () => {
-    if (get().hydrated) return;
-    set({ hydrated: true });
-    const saved = loadSession();
-    if (!saved) return;
-    const { repertoires, color } = buildAll(saved.games);
-    logInfo('hydrate', `Restored ${saved.games.length} games for ${saved.site}/${saved.username} from cache`);
-    set({
-      site: saved.site,
-      username: saved.username,
-      games: saved.games,
-      repertoires,
-      color,
-      status: 'ready',
-      savedAt: saved.savedAt,
-      path: [],
-      fen: START_FEN,
-    });
+  refresh: async () => {
+    const { site, username, games: existing, newestAt, color } = get();
+    if (!username || !existing.length) {
+      // Nothing cached yet — treat as a full import.
+      return get().runImport();
+    }
+    logInfo('refresh', `Refresh started: ${site}/${username} (since ${newestAt ?? 0})`);
+    set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
+    try {
+      const fresh = await importGames(site, username, {
+        max: 'all',
+        since: newestAt,
+        onProgress: (n) => set({ progress: n }),
+      });
+      const byId = new Map(existing.map((g) => [g.id, g]));
+      let added = 0;
+      for (const g of fresh) {
+        if (!byId.has(g.id)) {
+          byId.set(g.id, g);
+          added++;
+        }
+      }
+      const merged = added ? [...byId.values()] : existing;
+      const { repertoires } = buildAll(merged);
+      const savedAt = Date.now();
+      const newest = newestTimestamp(merged);
+      await saveSession({ site, username, games: merged, savedAt, newestAt: newest });
+      logInfo('refresh', `+${added} new games (total ${merged.length})`);
+      set({
+        games: merged,
+        repertoires,
+        color,
+        status: 'ready',
+        savedAt,
+        newestAt: newest,
+        lastAdded: added,
+        path: [],
+        fen: START_FEN,
+      });
+    } catch (e) {
+      const msg =
+        e instanceof ImportError
+          ? e.message
+          : 'Refresh failed. Your cached games are still here — try again.';
+      logError('refresh', `Refresh failed: ${msg}`, e);
+      // Keep existing data; just surface the error.
+      set({ status: 'ready', error: msg });
+    }
   },
 
-  clearSaved: () => {
-    clearSession();
+  hydrate: async () => {
+    if (get().hydrated) return;
+    set({ hydrated: true });
+    try {
+      const saved = await loadSession();
+      if (!saved) {
+        set({ hydrating: false });
+        return;
+      }
+      const { repertoires, color } = buildAll(saved.games);
+      logInfo(
+        'hydrate',
+        `Restored ${saved.games.length} games for ${saved.site}/${saved.username} from cache`,
+      );
+      set({
+        site: saved.site,
+        username: saved.username,
+        games: saved.games,
+        repertoires,
+        color,
+        status: 'ready',
+        savedAt: saved.savedAt,
+        newestAt: saved.newestAt ?? newestTimestamp(saved.games),
+        path: [],
+        fen: START_FEN,
+        hydrating: false,
+      });
+    } catch (e) {
+      logError('hydrate', 'Failed to restore cached games', e);
+      set({ hydrating: false });
+    }
+  },
+
+  clearSaved: async () => {
+    await clearSession();
     set({
       games: [],
       repertoires: null,
       status: 'idle',
       error: undefined,
       savedAt: undefined,
+      newestAt: undefined,
+      lastAdded: undefined,
       path: [],
       fen: START_FEN,
     });

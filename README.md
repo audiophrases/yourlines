@@ -8,8 +8,10 @@ pinpoint where you drift off.
 
 ## What it does
 
-- **Import** — fetches your games straight from the Chess.com and Lichess public
-  APIs (no login, no keys). Runs entirely in the browser.
+- **Import** — fetches *all* your games straight from the Chess.com and Lichess
+  public APIs (no login, no keys). Games are cached in **IndexedDB**, so a reload
+  restores instantly with no re-fetch, and **Refresh** pulls only games newer than
+  your last import. Runs entirely in the browser.
 - **Named lines tree** — aggregates your games into an opening tree. Every move is
   labelled with its ECO opening name, refined from general → specific as you go
   deeper (e.g. _Sicilian Defense › Najdorf Variation › English Attack_).

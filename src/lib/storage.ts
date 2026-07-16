@@ -1,45 +1,133 @@
 import type { Game, Site } from './types';
 
 /**
- * Local persistence for the last import. We store the raw games (the source of
- * truth) plus the profile; the repertoire trees / openings / weaknesses are
- * cheap to rebuild from games on load, so they are NOT stored — this keeps the
- * payload small and avoids stale derived data.
+ * Local persistence for imported games. Uses IndexedDB (not localStorage) so
+ * large histories — thousands of games — fit comfortably; localStorage caps at
+ * ~5 MB, IndexedDB is typically hundreds of MB to GBs. The raw games are the
+ * source of truth; the repertoire trees are rebuilt from them on load.
  */
-const KEY = 'yourlines:v1';
+const DB_NAME = 'yourlines';
+const DB_VERSION = 1;
+const STORE = 'kv';
+const KEY = 'current';
+const LEGACY_LS_KEY = 'yourlines:v1'; // pre-IndexedDB localStorage cache
 
 export interface SavedSession {
   site: Site;
   username: string;
   games: Game[];
   savedAt: number;
+  /** Newest game timestamp (ms) — the cursor for incremental refresh. */
+  newestAt?: number;
 }
 
-export function loadSession(): SavedSession | null {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as SavedSession;
-    if (!parsed?.games?.length || !parsed.username) return null;
-    return parsed;
-  } catch {
-    return null;
+let dbPromise: Promise<IDBDatabase> | null = null;
+
+function openDb(): Promise<IDBDatabase> {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return dbPromise;
+}
+
+function idbGet<T>(key: string): Promise<T | undefined> {
+  return openDb().then(
+    (db) =>
+      new Promise<T | undefined>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const r = tx.objectStore(STORE).get(key);
+        r.onsuccess = () => resolve(r.result as T | undefined);
+        r.onerror = () => reject(r.error);
+      }),
+  );
+}
+
+function idbSet(key: string, value: unknown): Promise<void> {
+  return openDb().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(value, key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      }),
+  );
+}
+
+function idbDel(key: string): Promise<void> {
+  return openDb().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).delete(key);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      }),
+  );
+}
+
+/** Newest game timestamp (ms) across a set of games, or undefined if none dated. */
+export function newestTimestamp(games: Game[]): number | undefined {
+  let max = 0;
+  for (const g of games) {
+    if (!g.date) continue;
+    const t = Date.parse(g.date);
+    if (t > max) max = t;
   }
+  return max || undefined;
 }
 
-export function saveSession(session: SavedSession): boolean {
+export async function loadSession(): Promise<SavedSession | null> {
   try {
-    localStorage.setItem(KEY, JSON.stringify(session));
+    const found = await idbGet<SavedSession>(KEY);
+    if (found?.games?.length) return found;
+  } catch {
+    /* fall through to legacy migration */
+  }
+  // One-time migration from the old localStorage cache.
+  try {
+    const raw = localStorage.getItem(LEGACY_LS_KEY);
+    if (raw) {
+      const legacy = JSON.parse(raw) as SavedSession;
+      if (legacy?.games?.length) {
+        const migrated: SavedSession = {
+          ...legacy,
+          newestAt: legacy.newestAt ?? newestTimestamp(legacy.games),
+        };
+        await saveSession(migrated).catch(() => {});
+        localStorage.removeItem(LEGACY_LS_KEY);
+        return migrated;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+export async function saveSession(session: SavedSession): Promise<boolean> {
+  try {
+    await idbSet(KEY, session);
     return true;
   } catch {
-    // Quota exceeded or storage unavailable (e.g. private mode) — non-fatal.
     return false;
   }
 }
 
-export function clearSession(): void {
+export async function clearSession(): Promise<void> {
   try {
-    localStorage.removeItem(KEY);
+    await idbDel(KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    localStorage.removeItem(LEGACY_LS_KEY);
   } catch {
     /* ignore */
   }
