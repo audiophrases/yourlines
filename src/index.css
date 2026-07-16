@@ -1,0 +1,82 @@
+@import 'tailwindcss';
+
+/* ── yourlines design tokens ─────────────────────────────────────────────
+   A calm, dark "study" theme with a warm amber accent (the highlight color
+   of an analysis board) over cool slate surfaces. */
+@theme {
+  --color-ink-950: #0a0b10;
+  --color-ink-900: #0f1117;
+  --color-ink-850: #141722;
+  --color-ink-800: #1a1e2b;
+  --color-ink-700: #262b3d;
+  --color-ink-600: #363c52;
+  --color-ink-500: #4a5169;
+
+  --color-mist-100: #eef1f8;
+  --color-mist-200: #d6dbe8;
+  --color-mist-300: #aab2c8;
+  --color-mist-400: #8790a8;
+  --color-mist-500: #6b7290;
+
+  --color-amber: #f2b544;
+  --color-amber-soft: #f2b54422;
+  --color-teal: #4fd1c5;
+  --color-rose: #f2668b;
+  --color-emerald: #57c98a;
+
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 800px at 15% -10%, #1a1f30 0%, transparent 55%),
+    radial-gradient(1000px 700px at 100% 0%, #17202a 0%, transparent 50%),
+    var(--color-ink-950);
+  color: var(--color-mist-200);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Thin, unobtrusive scrollbars for the tree/list panels */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-600) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--color-ink-600);
+  border-radius: 999px;
+}
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-500);
+}
+
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-fadein {
+  animation: fadein 0.25s ease-out both;
+}
