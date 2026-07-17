@@ -6531,6 +6531,16 @@
           rebuildPosition(moveHistory.length);
         }
       })();
+
+      // Expose the current position to the yourlines suite nav so the Lines /
+      // Gym links can carry the board across apps. Harmless standalone.
+      window.SuiteBoardContext = function () {
+        try {
+          return { fen: game.fen() };
+        } catch (error) {
+          return {};
+        }
+      };
       }
 
       if (document.readyState === 'loading') {

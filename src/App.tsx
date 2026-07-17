@@ -1,6 +1,9 @@
 import { useEffect, useMemo } from 'react';
+import { Chess } from 'chess.js';
 import { useStore, type Tab } from './store/useStore';
 import { withMoveNumbers } from './lib/chessUtil';
+import { fenToEpd } from './lib/openings';
+import { findNodeByEpd, MAX_PLY } from './lib/tree';
 import { filterByWindow } from './lib/timeFilter';
 import { gamesThroughPath } from './lib/gamesQuery';
 import { EvalProvider } from './hooks/EvalContext';
@@ -23,6 +26,77 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'weak', label: 'Weak spots' },
   { id: 'games', label: 'Games' },
 ];
+
+/**
+ * Reverse deep link: /?pgn= or /?moves= jumps to that line; /?fen= searches
+ * the user's trees for the position (transposition-aware via EPD) — "how do
+ * MY games handle this?" from anywhere in the suite. Runs once after hydrate.
+ */
+let deepLinkConsumed = false;
+
+function consumeDeepLink() {
+  // Only the invocation that follows the *completed* hydration may run
+  // (StrictMode double-invokes the effect; the early-returning hydrate call
+  // resolves before restoration finishes and would race the state reset).
+  if (deepLinkConsumed || useStore.getState().hydrating) return;
+  deepLinkConsumed = true;
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(window.location.search);
+  } catch {
+    return;
+  }
+  const fen = params.get('fen');
+  const pgn = params.get('pgn');
+  const moves = params.get('moves');
+  if (!fen && !pgn && !moves) return;
+  window.history.replaceState({}, '', window.location.pathname);
+
+  const st = useStore.getState();
+  let sans: string[] | null = null;
+  if (moves) {
+    sans = moves
+      .replace(/\d+\.(\.\.)?/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+  } else if (pgn) {
+    try {
+      const c = new Chess();
+      c.loadPgn(pgn);
+      sans = c.history();
+    } catch {
+      st.setNotice('Could not read the game in that link.');
+      return;
+    }
+  }
+  if (sans) {
+    st.navTo(sans.slice(0, MAX_PLY));
+    st.setTab('games');
+    return;
+  }
+  if (fen) {
+    if (!st.repertoires) {
+      st.setNotice('Import your games first, then position search works from anywhere in the suite.');
+      return;
+    }
+    const epd = fenToEpd(fen);
+    const inCurrent = findNodeByEpd(st.repertoires[st.color].tree, epd);
+    if (inCurrent) {
+      st.navTo(inCurrent.line);
+      st.setTab('games');
+      return;
+    }
+    const other = st.color === 'white' ? 'black' : 'white';
+    const inOther = findNodeByEpd(st.repertoires[other].tree, epd);
+    if (inOther) {
+      st.setColor(other);
+      st.navTo(inOther.line);
+      st.setTab('games');
+      return;
+    }
+    st.setNotice('That position does not appear in your imported games.');
+  }
+}
 
 function Logo() {
   return (
@@ -64,14 +138,28 @@ function SuiteNav() {
         <a
           key={a.label}
           href={a.href}
-          title={a.label === 'Play' ? 'Open the analysis board with the current position' : undefined}
+          title={
+            a.label === 'Play'
+              ? 'Open the analysis board with the current position'
+              : a.label === 'Gym'
+                ? 'Find trainer lines matching the current position'
+                : undefined
+          }
           onClick={
             a.label === 'Play'
               ? (e) => {
                   e.preventDefault();
                   window.location.href = playHref();
                 }
-              : undefined
+              : a.label === 'Gym'
+                ? (e) => {
+                    e.preventDefault();
+                    const { path } = useStore.getState();
+                    window.location.href = path.length
+                      ? `/gym/?lookup=${encodeURIComponent(path.join(' '))}`
+                      : '/gym/';
+                  }
+                : undefined
           }
           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
             a.active
@@ -90,10 +178,12 @@ export default function App() {
   const hasData = useStore((s) => s.repertoires != null);
   const hydrating = useStore((s) => s.hydrating);
   const hydrate = useStore((s) => s.hydrate);
+  const notice = useStore((s) => s.notice);
+  const setNotice = useStore((s) => s.setNotice);
 
-  // Restore a previous import from storage on first load.
+  // Restore a previous import from storage, then honor any deep link.
   useEffect(() => {
-    void hydrate();
+    void hydrate().then(consumeDeepLink);
   }, [hydrate]);
 
   return (
@@ -111,6 +201,19 @@ export default function App() {
           </div>
         </header>
 
+        {notice && (
+          <div className="mx-auto w-full max-w-[1400px] px-4 pt-3">
+            <div className="flex items-center gap-2 rounded-lg border border-amber/30 bg-amber/5 px-3 py-1.5 text-xs text-amber">
+              <span>{notice}</span>
+              <button
+                onClick={() => setNotice(undefined)}
+                className="ml-auto text-amber/70 hover:text-amber"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
         {hydrating ? (
           <Restoring />
         ) : hasData ? (

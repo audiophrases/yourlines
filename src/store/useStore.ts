@@ -67,6 +67,10 @@ interface State {
   tab: Tab;
   setTab: (t: Tab) => void;
 
+  /** Transient user-facing message (e.g. deep-link position not found). */
+  notice?: string;
+  setNotice: (n?: string) => void;
+
   /** All cached accounts, most-recently-saved first. */
   profiles: ProfileSummary[];
   /** The active profile key ("site:username"), or null when none loaded. */
@@ -268,6 +272,9 @@ export const useStore = create<State>((set, get) => {
 
     tab: 'tree',
     setTab: (tab) => set({ tab }),
+
+    notice: undefined,
+    setNotice: (notice) => set({ notice }),
 
     profiles: [],
     activeKey: null,

@@ -36,17 +36,40 @@
 
   var active = currentApp();
 
-  /** Carry the current board over to the analysis board: if the host app
-   *  exposes window.SuiteBoardContext (() => {pgn?, fen?}), the Play link
-   *  opens /play/ preloaded with that position. */
-  function playHrefWithContext() {
+  var START_FEN_PREFIX = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+
+  /** Carry the current board across apps: if the host app exposes
+   *  window.SuiteBoardContext (() => {pgn?, fen?}), links open the target
+   *  app preloaded with that position:
+   *    Play  -> /play/?pgn|fen=   (analysis board at the position)
+   *    Lines -> /?pgn|fen=        (how do MY games handle this?)
+   *    Gym   -> /gym/?lookup=     (matching trainer lines)  */
+  function hrefWithContext(app) {
     try {
       var ctx = typeof window.SuiteBoardContext === 'function' ? window.SuiteBoardContext() : null;
-      if (ctx && ctx.pgn && ctx.pgn.trim()) return '/play/?pgn=' + encodeURIComponent(ctx.pgn.trim());
-      if (ctx && ctx.fen && ctx.fen.trim()) return '/play/?fen=' + encodeURIComponent(ctx.fen.trim());
+      if (!ctx) return app.href;
+      var pgn = ctx.pgn && ctx.pgn.trim() ? ctx.pgn.trim() : '';
+      var fen = ctx.fen && ctx.fen.trim() ? ctx.fen.trim() : '';
+      if (fen.indexOf(START_FEN_PREFIX) === 0) fen = '';
+      if (app.id === 'play') {
+        if (pgn) return '/play/?pgn=' + encodeURIComponent(pgn);
+        if (fen) return '/play/?fen=' + encodeURIComponent(fen);
+      } else if (app.id === 'lines') {
+        if (pgn) return '/?pgn=' + encodeURIComponent(pgn);
+        if (fen) return '/?fen=' + encodeURIComponent(fen);
+      } else if (app.id === 'gym') {
+        var q = pgn || fen;
+        if (q) return '/gym/?lookup=' + encodeURIComponent(q);
+      }
     } catch (e) {}
-    return '/play/';
+    return app.href;
   }
+
+  var CONTEXT_TITLES = {
+    play: 'Open the analysis board with the current position',
+    lines: 'See how your own games handle the current position',
+    gym: 'Find trainer lines matching the current position',
+  };
 
   function makeItem(app) {
     var a = document.createElement('a');
@@ -54,11 +77,11 @@
     a.textContent = app.icon + ' ' + app.label;
     a.title = app.label;
     var isActive = app.id === active;
-    if (app.id === 'play' && !isActive) {
-      a.title = 'Open the analysis board with the current position';
+    if (!isActive && CONTEXT_TITLES[app.id]) {
+      a.title = CONTEXT_TITLES[app.id];
       a.addEventListener('click', function (e) {
         e.preventDefault();
-        location.href = playHrefWithContext();
+        location.href = hrefWithContext(app);
       });
     }
     a.style.cssText =

@@ -167,6 +167,21 @@ export function summarizeOpenings(
   return stats.sort((a, b) => b.games - a.games);
 }
 
+/** Find the most-played node at a given position, transposition-aware: any
+ *  path in the user's games that reaches this position matches. Compared on
+ *  placement + turn + castling only — en-passant fields differ between chess
+ *  libraries (e6 vs -) and would break otherwise-identical positions. */
+export function findNodeByEpd(root: TreeNode, epd: string): TreeNode | null {
+  const key = epd.split(' ').slice(0, 3).join(' ');
+  let best: TreeNode | null = null;
+  const visit = (n: TreeNode) => {
+    if (n.epd.split(' ').slice(0, 3).join(' ') === key && (!best || n.games > best.games)) best = n;
+    for (const c of Object.values(n.children)) visit(c);
+  };
+  visit(root);
+  return best;
+}
+
 /** Most-played named node whose opening family matches — a good line to jump to. */
 export function findOpeningNode(root: TreeNode, family: string): TreeNode | null {
   let best: TreeNode | null = null;
