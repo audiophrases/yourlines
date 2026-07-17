@@ -4,6 +4,7 @@ import { importGames, ImportError } from '../lib/chessApi';
 import {
   listProfiles,
   loadProfile,
+  profileKey,
   loadActiveProfile,
   saveProfile,
   deleteProfile,
@@ -48,6 +49,8 @@ interface State {
   status: Status;
   error?: string;
   progress: number;
+  /** What kind of fetch is running: everything, or only games newer than the cursor. */
+  loadingKind?: 'full' | 'incremental';
 
   games: Game[];
   repertoires: Record<Color, Repertoire> | null;
@@ -151,6 +154,72 @@ export const useStore = create<State>((set, get) => {
   const rebuild = (games: Game[], preferColor?: Color) =>
     buildAll(filterByWindow(games, get().timeFilter), preferColor);
 
+  /** Fetch only games newer than the cursor, merge into the cached set
+   *  (dedupe by id), persist, and activate the profile. */
+  const updateProfile = async (
+    site: Site,
+    username: string,
+    base: { games: Game[]; newestAt?: number },
+  ) => {
+    const since = base.newestAt ?? newestTimestamp(base.games);
+    logInfo('refresh', `Incremental update: ${site}/${username} (since ${since ?? 0})`);
+    set({
+      status: 'loading',
+      loadingKind: 'incremental',
+      error: undefined,
+      progress: 0,
+      lastAdded: undefined,
+    });
+    try {
+      const fresh = await importGames(site, username, {
+        max: 'all',
+        since,
+        onProgress: (n) => set({ progress: n }),
+      });
+      const byId = new Map(base.games.map((g) => [g.id, g]));
+      let added = 0;
+      for (const g of fresh) {
+        if (!byId.has(g.id)) {
+          byId.set(g.id, g);
+          added++;
+        }
+      }
+      const merged = added ? [...byId.values()] : base.games;
+      const savedAt = Date.now();
+      const newest = newestTimestamp(merged);
+      const summary = await saveProfile({ site, username, games: merged, savedAt, newestAt: newest });
+      const profiles = await listProfiles();
+      // Keep the user's color choice when updating the profile they're viewing.
+      const preferColor = summary.key === get().activeKey ? get().color : undefined;
+      const { repertoires, color } = rebuild(merged, preferColor);
+      logInfo('refresh', `+${added} new games (total ${merged.length}) for ${summary.key}`);
+      set({
+        games: merged,
+        repertoires,
+        color,
+        status: 'ready',
+        savedAt,
+        newestAt: newest,
+        lastAdded: added,
+        profiles,
+        activeKey: summary.key,
+        site,
+        username: summary.username,
+        path: [],
+        fen: START_FEN,
+        hydrated: true,
+        hydrating: false,
+      });
+    } catch (e) {
+      const msg =
+        e instanceof ImportError
+          ? e.message
+          : 'Update failed. Your cached games are still here — try again.';
+      logError('refresh', `Incremental update failed: ${msg}`, e);
+      set({ status: get().repertoires ? 'ready' : 'error', error: msg });
+    }
+  };
+
   /** Load a profile from storage into the active view. */
   const activate = (p: {
     key: string;
@@ -208,9 +277,27 @@ export const useStore = create<State>((set, get) => {
     setUsername: (username) => set({ username }),
 
     runImport: async () => {
-      const { site, username } = get();
+      const { site } = get();
+      const username = get().username.trim();
+      if (!username) return;
+      // If this account is already cached, only fetch games newer than the
+      // cursor — never re-download the whole history.
+      const cached = await loadProfile(profileKey(site, username)).catch(() => null);
+      if (cached && cached.games.length) {
+        logInfo(
+          'import',
+          `${cached.key} already cached (${cached.games.length} games) — fetching only new games`,
+        );
+        return updateProfile(site, cached.username, cached);
+      }
       logInfo('import', `Full import started: ${site}/${username}`);
-      set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
+      set({
+        status: 'loading',
+        loadingKind: 'full',
+        error: undefined,
+        progress: 0,
+        lastAdded: undefined,
+      });
       try {
         const games = await importGames(site, username, {
           max: 'all',
@@ -256,51 +343,9 @@ export const useStore = create<State>((set, get) => {
     },
 
     refresh: async () => {
-      const { site, username, games: existing, newestAt, color } = get();
+      const { site, username, games: existing, newestAt } = get();
       if (!username || !existing.length) return get().runImport();
-      logInfo('refresh', `Refresh started: ${site}/${username} (since ${newestAt ?? 0})`);
-      set({ status: 'loading', error: undefined, progress: 0, lastAdded: undefined });
-      try {
-        const fresh = await importGames(site, username, {
-          max: 'all',
-          since: newestAt,
-          onProgress: (n) => set({ progress: n }),
-        });
-        const byId = new Map(existing.map((g) => [g.id, g]));
-        let added = 0;
-        for (const g of fresh) {
-          if (!byId.has(g.id)) {
-            byId.set(g.id, g);
-            added++;
-          }
-        }
-        const merged = added ? [...byId.values()] : existing;
-        const savedAt = Date.now();
-        const newest = newestTimestamp(merged);
-        await saveProfile({ site, username, games: merged, savedAt, newestAt: newest });
-        const profiles = await listProfiles();
-        const { repertoires } = rebuild(merged, color);
-        logInfo('refresh', `+${added} new games (total ${merged.length})`);
-        set({
-          games: merged,
-          repertoires,
-          color,
-          status: 'ready',
-          savedAt,
-          newestAt: newest,
-          lastAdded: added,
-          profiles,
-          path: [],
-          fen: START_FEN,
-        });
-      } catch (e) {
-        const msg =
-          e instanceof ImportError
-            ? e.message
-            : 'Refresh failed. Your cached games are still here — try again.';
-        logError('refresh', `Refresh failed: ${msg}`, e);
-        set({ status: 'ready', error: msg });
-      }
+      return updateProfile(site, username, { games: existing, newestAt });
     },
 
     hydrate: async () => {

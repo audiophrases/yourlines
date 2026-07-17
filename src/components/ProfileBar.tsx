@@ -12,6 +12,7 @@ export function ProfileBar() {
   const error = useStore((s) => s.error);
   const gameCount = useStore((s) => s.games.length);
   const progress = useStore((s) => s.progress);
+  const loadingKind = useStore((s) => s.loadingKind);
   const lastAdded = useStore((s) => s.lastAdded);
   const refresh = useStore((s) => s.refresh);
   const clearSaved = useStore((s) => s.clearSaved);
@@ -58,7 +59,11 @@ export function ProfileBar() {
           <span className="text-mist-300">{gameCount.toLocaleString()} games</span> · saved{' '}
           {relativeTime(savedAt)}
         </span>
-        {loading && <span className="text-amber">· fetching newest… {progress || 0}</span>}
+        {loading && (
+          <span className="text-amber">
+            · {loadingKind === 'full' ? 'importing all games…' : 'fetching newest…'} {progress || 0}
+          </span>
+        )}
         {!loading && lastAdded !== undefined && (
           <span className="text-emerald">· {lastAdded > 0 ? `+${lastAdded} new` : 'up to date'}</span>
         )}
