@@ -15,7 +15,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
 const siblings = resolve(repoRoot, '..');
 
-const NAV_TAG = '<script src="../suite/nav.js" defer></script>';
+const SUITE_TAGS =
+  '<script src="../suite/nav.js" defer></script>\n  <script src="../suite/bridge.js" defer></script>';
 
 /** Per-app sync config. `include` entries are files or directories. */
 const APPS = [
@@ -87,9 +88,9 @@ function injectNav(indexPath) {
   let html = readFileSync(indexPath, 'utf8');
   if (html.includes('suite/nav.js')) return;
   if (html.includes('</head>')) {
-    html = html.replace('</head>', `  ${NAV_TAG}\n</head>`);
+    html = html.replace('</head>', `  ${SUITE_TAGS}\n</head>`);
   } else {
-    html = NAV_TAG + '\n' + html;
+    html = SUITE_TAGS + '\n' + html;
   }
   writeFileSync(indexPath, html);
 }

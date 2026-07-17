@@ -3,10 +3,21 @@ import { useStore } from '../store/useStore';
 import { useSharedEval } from '../hooks/EvalContext';
 import { sortedChildren } from '../lib/tree';
 import { formatEval } from '../lib/engine';
-import { uciToSan, withMoveNumbers } from '../lib/chessUtil';
+import { uciToSan, withMoveNumbers, handoffToReview } from '../lib/chessUtil';
 import { nameSegments } from '../lib/openings';
-import type { Weakness } from '../lib/types';
+import type { Game, Weakness } from '../lib/types';
 import { ScoreBar } from './ui';
+
+/** The user's game to review for a weak line: most recent loss along it, else
+ *  the most recent game that reached it. */
+function gameForLine(games: Game[], line: string[], color: 'white' | 'black'): Game | null {
+  const inLine = games.filter(
+    (g) => g.userColor === color && line.every((m, i) => g.moves[i] === m),
+  );
+  if (!inLine.length) return null;
+  const newestFirst = inLine.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+  return newestFirst.find((g) => g.result === 'loss') ?? newestFirst[0];
+}
 
 export function Weaknesses() {
   const repertoire = useStore((s) => s.repertoire());
@@ -46,6 +57,8 @@ function WeaknessCard({
   const navTo = useStore((s) => s.navTo);
   const setEngineOn = useStore((s) => s.setEngineOn);
   const engineOn = useStore((s) => s.engineOn);
+  const games = useStore((s) => s.games);
+  const username = useStore((s) => s.username);
   const { line, status } = useSharedEval();
 
   const node = w.node;
@@ -56,6 +69,11 @@ function WeaknessCard({
   const analyse = () => {
     navTo(node.line);
     setEngineOn(true);
+  };
+
+  const review = () => {
+    const g = gameForLine(games, node.line, color);
+    if (g) handoffToReview(g, username);
   };
 
   // Engine verdict (only meaningful when this card's position is the live one).
@@ -98,12 +116,21 @@ function WeaknessCard({
           {rank}
         </span>
         <span className="truncate text-sm font-semibold text-mist-100">{name}</span>
-        <button
-          onClick={analyse}
-          className="ml-auto shrink-0 rounded-lg border border-teal/40 bg-teal/10 px-2 py-0.5 text-xs font-medium text-teal transition-colors hover:bg-teal/20"
-        >
-          Analyse
-        </button>
+        <div className="ml-auto flex shrink-0 gap-1.5">
+          <button
+            onClick={analyse}
+            className="rounded-lg border border-teal/40 bg-teal/10 px-2 py-0.5 text-xs font-medium text-teal transition-colors hover:bg-teal/20"
+          >
+            Analyse
+          </button>
+          <button
+            onClick={review}
+            title="Open your most recent loss in this line in the Reviewer"
+            className="rounded-lg border border-amber/40 bg-amber/10 px-2 py-0.5 text-xs font-medium text-amber transition-colors hover:bg-amber/20"
+          >
+            Review
+          </button>
+        </div>
       </div>
 
       <div className="mt-1.5 font-mono text-xs text-mist-400">
