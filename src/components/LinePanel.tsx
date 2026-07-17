@@ -31,7 +31,13 @@ export function LinePanel() {
           </span>
         )}
         {segments.length === 0 ? (
-          <span className="text-sm text-mist-400">Starting position</span>
+          <span className="text-sm text-mist-400">
+            {path.length === 0
+              ? 'Starting position'
+              : node
+                ? 'Unnamed position'
+                : 'Beyond your common lines — stepping through a game'}
+          </span>
         ) : (
           segments.map((seg, i) => (
             <span key={i} className="flex items-center gap-1.5">

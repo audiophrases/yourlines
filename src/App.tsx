@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { useStore } from './store/useStore';
+import { useEffect, useMemo } from 'react';
+import { useStore, type Tab } from './store/useStore';
 import { withMoveNumbers } from './lib/chessUtil';
+import { filterByWindow } from './lib/timeFilter';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
 import { ProfileBar } from './components/ProfileBar';
@@ -11,15 +12,15 @@ import { LinePanel } from './components/LinePanel';
 import { OpeningTree } from './components/OpeningTree';
 import { CommonOpenings } from './components/CommonOpenings';
 import { Weaknesses } from './components/Weaknesses';
+import { GamesList } from './components/GamesList';
 import { score } from './lib/tree';
 import type { Color } from './lib/types';
-
-type Tab = 'tree' | 'openings' | 'weak';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'tree', label: 'Lines tree' },
   { id: 'openings', label: 'Your openings' },
   { id: 'weak', label: 'Weak spots' },
+  { id: 'games', label: 'Games' },
 ];
 
 function Logo() {
@@ -212,8 +213,22 @@ function Feature({ title, desc }: { title: string; desc: string }) {
 }
 
 function Workspace() {
-  const [tab, setTab] = useState<Tab>('tree');
+  const tab = useStore((s) => s.tab);
+  const setTab = useStore((s) => s.setTab);
   const repertoire = useStore((s) => s.repertoire());
+  const games = useStore((s) => s.games);
+  const color = useStore((s) => s.color);
+  const path = useStore((s) => s.path);
+  const timeFilter = useStore((s) => s.timeFilter);
+
+  // Live count of games reaching the current position (shown on the Games tab).
+  const gamesHere = useMemo(
+    () =>
+      filterByWindow(games, timeFilter).filter(
+        (g) => g.userColor === color && path.every((m, i) => g.moves[i] === m),
+      ).length,
+    [games, color, path, timeFilter],
+  );
 
   return (
     <main className="mx-auto grid w-full max-w-[1400px] flex-1 grid-cols-1 gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
@@ -247,6 +262,11 @@ function Workspace() {
                   {repertoire.weaknesses.length}
                 </span>
               )}
+              {t.id === 'games' && gamesHere > 0 && (
+                <span className="ml-1.5 rounded-full bg-ink-700 px-1.5 text-[11px] tabular-nums text-mist-400">
+                  {gamesHere}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -254,6 +274,7 @@ function Workspace() {
           {tab === 'tree' && <OpeningTree />}
           {tab === 'openings' && <CommonOpenings />}
           {tab === 'weak' && <Weaknesses />}
+          {tab === 'games' && <GamesList />}
         </div>
       </section>
     </main>

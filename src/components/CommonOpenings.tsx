@@ -5,6 +5,7 @@ import { ScoreBar, ScorePill } from './ui';
 export function CommonOpenings() {
   const repertoire = useStore((s) => s.repertoire());
   const navTo = useStore((s) => s.navTo);
+  const setTab = useStore((s) => s.setTab);
 
   if (!repertoire) return null;
   const openings = repertoire.openings;
@@ -24,10 +25,15 @@ export function CommonOpenings() {
         const node = findOpeningNode(repertoire.tree, o.family);
         const share = Math.round((o.games / total) * 100);
         return (
-          <button
+          <div
             key={o.family}
+            role="button"
+            tabIndex={0}
             onClick={() => node && navTo(node.line)}
-            className="group rounded-xl border border-ink-700 bg-ink-850/70 px-3 py-2.5 text-left transition-colors hover:border-ink-600 hover:bg-ink-800"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && node) navTo(node.line);
+            }}
+            className="group cursor-pointer rounded-xl border border-ink-700 bg-ink-850/70 px-3 py-2.5 text-left transition-colors hover:border-ink-600 hover:bg-ink-800"
           >
             <div className="flex items-baseline gap-2">
               <span className="font-mono text-[11px] text-mist-500">{o.eco}</span>
@@ -48,8 +54,19 @@ export function CommonOpenings() {
                 />
               </div>
               <ScorePill score={score(o)} />
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (node) navTo(node.line);
+                  setTab('games');
+                }}
+                title="List your games in this opening"
+                className="shrink-0 rounded-md border border-ink-600 bg-ink-800 px-2 py-0.5 text-[11px] font-medium text-mist-300 opacity-0 transition-opacity hover:text-mist-100 group-hover:opacity-100"
+              >
+                games →
+              </button>
             </div>
-          </button>
+          </div>
         );
       })}
     </div>

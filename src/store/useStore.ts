@@ -43,6 +43,10 @@ export interface Repertoire {
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
+/** Right-panel tabs. In the store so any component can route to a view
+ *  (e.g. a weak-spot card jumping to the games at its position). */
+export type Tab = 'tree' | 'openings' | 'weak' | 'games';
+
 interface State {
   site: Site;
   username: string;
@@ -58,6 +62,10 @@ interface State {
 
   /** Analysis time window (view scope; all games stay cached). */
   timeFilter: TimeWindow;
+
+  /** Active right-panel tab. */
+  tab: Tab;
+  setTab: (t: Tab) => void;
 
   /** All cached accounts, most-recently-saved first. */
   profiles: ProfileSummary[];
@@ -257,6 +265,9 @@ export const useStore = create<State>((set, get) => {
     repertoires: null,
     color: 'white',
     timeFilter: loadTimeFilter(),
+
+    tab: 'tree',
+    setTab: (tab) => set({ tab }),
 
     profiles: [],
     activeKey: null,

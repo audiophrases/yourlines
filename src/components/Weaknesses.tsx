@@ -55,6 +55,7 @@ function WeaknessCard({
 }) {
   const path = useStore((s) => s.path);
   const navTo = useStore((s) => s.navTo);
+  const setTab = useStore((s) => s.setTab);
   const setEngineOn = useStore((s) => s.setEngineOn);
   const engineOn = useStore((s) => s.engineOn);
   const games = useStore((s) => s.games);
@@ -136,6 +137,16 @@ function WeaknessCard({
             className="rounded-lg border border-emerald/40 bg-emerald/10 px-2 py-0.5 text-xs font-medium text-emerald transition-colors hover:bg-emerald/20"
           >
             Train
+          </button>
+          <button
+            onClick={() => {
+              navTo(node.line);
+              setTab('games');
+            }}
+            title="List the games that reached this position"
+            className="rounded-lg border border-ink-600 bg-ink-800 px-2 py-0.5 text-xs font-medium text-mist-300 transition-colors hover:text-mist-100"
+          >
+            Games
           </button>
         </div>
       </div>

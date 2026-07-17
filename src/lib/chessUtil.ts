@@ -66,6 +66,11 @@ export function handoffToGym(line: string[]): void {
   window.location.href = `/gym/?lookup=${encodeURIComponent(line.join(' '))}`;
 }
 
+/** Open a full game on the analysis board (/play/), landing on the final position. */
+export function handoffToPlay(game: Game, username: string): void {
+  window.location.href = `/play/?pgn=${encodeURIComponent(gameToPgn(game, username))}`;
+}
+
 /** Hand a game off to the Reviewer app (/review/) and navigate there. */
 export function handoffToReview(game: Game, username: string): void {
   try {
