@@ -6504,6 +6504,33 @@
       rebuildPosition(targetIndex);
     });
   }
+
+      // Deep link: ?pgn=<PGN or numbered movetext> or ?fen=<FEN> loads that
+      // position on boot — same path as the Input modal. Used by the yourlines
+      // suite nav ("Play" carries the board over from the other apps), and
+      // works for any shared URL.
+      (function loadPositionFromUrl() {
+        let params;
+        try {
+          params = new URLSearchParams(window.location.search);
+        } catch (error) {
+          return;
+        }
+        const raw = (params.get('pgn') || params.get('fen') || '').trim();
+        if (!raw.length) {
+          return;
+        }
+        const result = importPositionFromText(raw);
+        if (!result || result.success !== true) {
+          console.warn('Could not load position from URL:', result && result.error);
+          return;
+        }
+        // Land on the position the link carried — the end of the movetext —
+        // rather than the start (the Input modal's default).
+        if (params.get('pgn') && moveHistory.length) {
+          rebuildPosition(moveHistory.length);
+        }
+      })();
       }
 
       if (document.readyState === 'loading') {

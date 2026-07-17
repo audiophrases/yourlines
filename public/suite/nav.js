@@ -36,12 +36,31 @@
 
   var active = currentApp();
 
+  /** Carry the current board over to the analysis board: if the host app
+   *  exposes window.SuiteBoardContext (() => {pgn?, fen?}), the Play link
+   *  opens /play/ preloaded with that position. */
+  function playHrefWithContext() {
+    try {
+      var ctx = typeof window.SuiteBoardContext === 'function' ? window.SuiteBoardContext() : null;
+      if (ctx && ctx.pgn && ctx.pgn.trim()) return '/play/?pgn=' + encodeURIComponent(ctx.pgn.trim());
+      if (ctx && ctx.fen && ctx.fen.trim()) return '/play/?fen=' + encodeURIComponent(ctx.fen.trim());
+    } catch (e) {}
+    return '/play/';
+  }
+
   function makeItem(app) {
     var a = document.createElement('a');
     a.href = app.href;
     a.textContent = app.icon + ' ' + app.label;
     a.title = app.label;
     var isActive = app.id === active;
+    if (app.id === 'play' && !isActive) {
+      a.title = 'Open the analysis board with the current position';
+      a.addEventListener('click', function (e) {
+        e.preventDefault();
+        location.href = playHrefWithContext();
+      });
+    }
     a.style.cssText =
       'display:inline-block;padding:5px 10px;border-radius:999px;text-decoration:none;white-space:nowrap;' +
       (isActive

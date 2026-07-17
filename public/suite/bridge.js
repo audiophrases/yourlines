@@ -308,6 +308,13 @@
   }
 
   function initReview() {
+    // Current-board context for the suite nav: "Play" opens the analysis
+    // board with the game being reviewed.
+    window.SuiteBoardContext = function () {
+      var el = document.getElementById('pgn-input');
+      var v = el && el.value ? el.value.trim() : '';
+      return v ? { pgn: v } : {};
+    };
     // "From Lines" button next to the app's own load buttons (step 1)…
     var anchor = document.getElementById('load-chesscom-btn');
     if (anchor && anchor.parentElement && !document.getElementById('yl-bridge-btn')) {

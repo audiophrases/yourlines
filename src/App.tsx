@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store/useStore';
+import { withMoveNumbers } from './lib/chessUtil';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
 import { ProfileBar } from './components/ProfileBar';
@@ -37,6 +38,16 @@ function Logo() {
   );
 }
 
+/** The current board as a deep-link target for the analysis board (/play/):
+ *  the line so far as numbered movetext, or nothing at the start position. */
+function playHref(): string {
+  const { path, fen } = useStore.getState();
+  if (path.length) return `/play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`;
+  if (fen && !fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'))
+    return `/play/?fen=${encodeURIComponent(fen)}`;
+  return '/play/';
+}
+
 /** Links to the other apps in the suite (synced into public/ by sync-apps). */
 function SuiteNav() {
   const apps = [
@@ -51,6 +62,15 @@ function SuiteNav() {
         <a
           key={a.label}
           href={a.href}
+          title={a.label === 'Play' ? 'Open the analysis board with the current position' : undefined}
+          onClick={
+            a.label === 'Play'
+              ? (e) => {
+                  e.preventDefault();
+                  window.location.href = playHref();
+                }
+              : undefined
+          }
           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
             a.active
               ? 'bg-amber/15 text-amber'
