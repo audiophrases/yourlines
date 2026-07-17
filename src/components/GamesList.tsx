@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useStore } from '../store/useStore';
 import { filterByWindow, windowLabel } from '../lib/timeFilter';
+import { gamesThroughPath } from '../lib/gamesQuery';
 import { handoffToReview, handoffToPlay } from '../lib/chessUtil';
 import { nameSegments } from '../lib/openings';
 import { moveNumber } from './ui';
@@ -20,12 +21,13 @@ export function GamesList() {
   const node = useStore((s) => s.current());
   const [limit, setLimit] = useState(PAGE);
 
-  const matching = useMemo(() => {
-    const scoped = filterByWindow(games, timeFilter).filter(
-      (g) => g.userColor === color && path.every((m, i) => g.moves[i] === m),
-    );
-    return scoped.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
-  }, [games, color, path, timeFilter]);
+  const matching = useMemo(
+    () =>
+      gamesThroughPath(filterByWindow(games, timeFilter), color, path).sort((a, b) =>
+        (b.date ?? '').localeCompare(a.date ?? ''),
+      ),
+    [games, color, path, timeFilter],
+  );
 
   const here =
     path.length === 0

@@ -2,6 +2,7 @@ import { useEffect, useMemo } from 'react';
 import { useStore, type Tab } from './store/useStore';
 import { withMoveNumbers } from './lib/chessUtil';
 import { filterByWindow } from './lib/timeFilter';
+import { gamesThroughPath } from './lib/gamesQuery';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
 import { ProfileBar } from './components/ProfileBar';
@@ -223,10 +224,7 @@ function Workspace() {
 
   // Live count of games reaching the current position (shown on the Games tab).
   const gamesHere = useMemo(
-    () =>
-      filterByWindow(games, timeFilter).filter(
-        (g) => g.userColor === color && path.every((m, i) => g.moves[i] === m),
-      ).length,
+    () => gamesThroughPath(filterByWindow(games, timeFilter), color, path).length,
     [games, color, path, timeFilter],
   );
 

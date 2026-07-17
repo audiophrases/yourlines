@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { Trend } from '../lib/trend';
 
 /** Win / Draw / Loss stacked bar. Counts are from the user's perspective. */
 export function ScoreBar({
@@ -36,6 +37,33 @@ export function ScoreBar({
         </div>
       )}
     </div>
+  );
+}
+
+/** Direction of recent results: ↗ improving / ↘ decaying / → flat, with the
+ *  change in percentage points between the earlier and later half of games. */
+export function TrendChip({ trend }: { trend: Trend | null | undefined }) {
+  if (!trend) return null;
+  const pp = Math.round(trend.delta * 100);
+  const improving = pp >= 3;
+  const decaying = pp <= -3;
+  const cls = improving
+    ? 'text-emerald bg-emerald/10'
+    : decaying
+      ? 'text-rose bg-rose/10'
+      : 'text-mist-500 bg-ink-700/60';
+  const arrow = improving ? '↗' : decaying ? '↘' : '→';
+  const title =
+    `Earlier: ${Math.round(trend.early * 100)}% over ${trend.earlyGames} games · ` +
+    `lately: ${Math.round(trend.late * 100)}% over ${trend.lateGames} games`;
+  return (
+    <span
+      title={title}
+      className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ${cls}`}
+    >
+      {arrow}
+      {pp !== 0 && ` ${pp > 0 ? '+' : ''}${pp}`}
+    </span>
   );
 }
 

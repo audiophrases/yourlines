@@ -1,6 +1,6 @@
 import { useStore } from '../store/useStore';
 import { findOpeningNode, score } from '../lib/tree';
-import { ScoreBar, ScorePill } from './ui';
+import { ScoreBar, ScorePill, TrendChip } from './ui';
 
 export function CommonOpenings() {
   const repertoire = useStore((s) => s.repertoire());
@@ -54,6 +54,7 @@ export function CommonOpenings() {
                 />
               </div>
               <ScorePill score={score(o)} />
+              <TrendChip trend={o.trend} />
               <button
                 onClick={(e) => {
                   e.stopPropagation();

@@ -1,5 +1,6 @@
 import { Chess } from 'chess.js';
 import { fenToEpd, openingForEpd, openingFamily } from './openings';
+import { computeTrend, type Trend } from './trend';
 import type { Color, Game, GameResult, Opening, TreeNode, Weakness } from './types';
 
 /** How many plies deep to build the opening tree (12 full moves). */
@@ -104,6 +105,8 @@ export interface OpeningStat {
   wins: number;
   losses: number;
   draws: number;
+  /** Recent direction of results within this family (null = sample too small). */
+  trend: Trend | null;
 }
 
 /**
@@ -122,6 +125,7 @@ export function summarizeOpenings(
     wins: number;
     losses: number;
     draws: number;
+    list: Game[];
     variations: Map<string, { name: string; eco: string; count: number }>;
   }
   const byFamily = new Map<string, Acc>();
@@ -133,10 +137,11 @@ export function summarizeOpenings(
     const family = openingFamily(deepest.name);
     let acc = byFamily.get(family);
     if (!acc) {
-      acc = { family, games: 0, wins: 0, losses: 0, draws: 0, variations: new Map() };
+      acc = { family, games: 0, wins: 0, losses: 0, draws: 0, list: [], variations: new Map() };
       byFamily.set(family, acc);
     }
     acc.games++;
+    acc.list.push(game);
     if (game.result === 'win') acc.wins++;
     else if (game.result === 'loss') acc.losses++;
     else acc.draws++;
@@ -156,6 +161,7 @@ export function summarizeOpenings(
       wins: acc.wins,
       losses: acc.losses,
       draws: acc.draws,
+      trend: computeTrend(acc.list),
     });
   }
   return stats.sort((a, b) => b.games - a.games);

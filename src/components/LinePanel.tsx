@@ -5,7 +5,10 @@ import { nameSegments } from '../lib/openings';
 import { score } from '../lib/tree';
 import { formatEval } from '../lib/engine';
 import { uciToSan } from '../lib/chessUtil';
-import { ScoreBar, ScorePill, moveNumber } from './ui';
+import { gamesThroughPath } from '../lib/gamesQuery';
+import { filterByWindow } from '../lib/timeFilter';
+import { computeTrend } from '../lib/trend';
+import { ScoreBar, ScorePill, TrendChip, moveNumber } from './ui';
 
 export function LinePanel() {
   const path = useStore((s) => s.path);
@@ -17,9 +20,20 @@ export function LinePanel() {
   const toStart = useStore((s) => s.toStart);
   const engineOn = useStore((s) => s.engineOn);
   const setEngineOn = useStore((s) => s.setEngineOn);
+  const games = useStore((s) => s.games);
+  const timeFilter = useStore((s) => s.timeFilter);
 
   const segments = node?.namePath ? nameSegments(node.namePath.name) : [];
   const eco = node?.namePath?.eco;
+
+  // Direction of results in the games that reach this position.
+  const trend = useMemo(
+    () =>
+      path.length
+        ? computeTrend(gamesThroughPath(filterByWindow(games, timeFilter), color, path))
+        : null,
+    [games, timeFilter, color, path],
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -96,6 +110,7 @@ export function LinePanel() {
               <ScoreBar wins={node.wins} draws={node.draws} losses={node.losses} height={6} />
             </div>
             <ScorePill score={score(node)} />
+            <TrendChip trend={trend} />
           </div>
         )}
         <button
