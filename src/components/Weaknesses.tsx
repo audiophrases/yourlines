@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore';
 import { useSharedEval } from '../hooks/EvalContext';
 import { sortedChildren } from '../lib/tree';
 import { formatEval } from '../lib/engine';
-import { uciToSan, withMoveNumbers, handoffToReview } from '../lib/chessUtil';
+import { uciToSan, withMoveNumbers, handoffToReview, handoffToGym } from '../lib/chessUtil';
 import { nameSegments } from '../lib/openings';
 import type { Game, Weakness } from '../lib/types';
 import { ScoreBar } from './ui';
@@ -129,6 +129,13 @@ function WeaknessCard({
             className="rounded-lg border border-amber/40 bg-amber/10 px-2 py-0.5 text-xs font-medium text-amber transition-colors hover:bg-amber/20"
           >
             Review
+          </button>
+          <button
+            onClick={() => handoffToGym(node.line)}
+            title="Find matching trainer lines for this position in the Gym"
+            className="rounded-lg border border-emerald/40 bg-emerald/10 px-2 py-0.5 text-xs font-medium text-emerald transition-colors hover:bg-emerald/20"
+          >
+            Train
           </button>
         </div>
       </div>

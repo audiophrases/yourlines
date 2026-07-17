@@ -61,6 +61,11 @@ export function gameToPgn(game: Game, username: string): string {
   return `${headers}\n${body.trim()} ${result}\n`;
 }
 
+/** Open the Gym app with a line queued for lookup/training. */
+export function handoffToGym(line: string[]): void {
+  window.location.href = `/gym/?lookup=${encodeURIComponent(line.join(' '))}`;
+}
+
 /** Hand a game off to the Reviewer app (/review/) and navigate there. */
 export function handoffToReview(game: Game, username: string): void {
   try {
