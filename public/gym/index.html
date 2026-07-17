@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChessGym</title>
+  <link rel="icon" href="favicon.ico" />
+  <link rel="stylesheet" href="libs/chessboard-1.0.0.min.css" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="../suite/nav.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <main class="main">
+      <div class="main-column board-column">
+        <section class="board-panel">
+          <div id="board"></div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer-bar">
+      <div class="footer-controls">
+        <div class="header-actions">
+          <button id="prevBtn" class="ghost">Prev</button>
+          <button id="nextBtn" class="ghost">Next</button>
+          <button id="boardZoomOut" class="ghost" aria-label="Reduce board size">-</button>
+          <button id="boardZoomIn" class="ghost" aria-label="Increase board size">+</button>
+          <button id="hintBtn" class="ghost" title="Hints alternate between highlighting the piece and showing the prompt.">Hint</button>
+          <button id="freeBtn" class="ghost" aria-pressed="false" title="Enable free play for both sides.">Free</button>
+          <button id="flipBtn" class="ghost hidden" title="Flip the board orientation (Free mode).">Flip</button>
+          <button id="lichessBtn" class="ghost">Lich</button>
+          <button id="lookupBtn" class="ghost" type="button" title="Find openings/lines matching a FEN or a game (PGN) from chess.com or lichess.">Lookup</button>
+        </div>
+      </div>
+      <div class="footer-prompt">
+        <div id="commentBox" class="comment-box footer-comment"></div>
+      </div>
+      <div class="footer-stats">
+        <div class="footer-stats-row">
+          <div class="field" id="strengthField">
+            <label for="strengthSelect">Engine strength</label>
+            <select id="strengthSelect" aria-label="Engine strength">
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="strong">Strong</option>
+            </select>
+          </div>
+          <button id="sessionSummary" class="session-summary" type="button" aria-expanded="false" aria-controls="sessionSelectors">
+            <div class="session-main">
+              <p id="lineStatus">Selecting your next line…</p>
+            </div>
+            <div class="session-stats">
+              <div class="progress" id="progressInfo">
+                <span id="progressText"></span>
+              </div>
+            </div>
+          </button>
+        </div>
+        <div class="session-selectors" id="sessionSelectors" hidden>
+          <div class="field selector-field">
+            <div class="select-with-thumb custom-select">
+              <img id="openingThumb" class="select-thumb is-placeholder" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" />
+              <button id="openingSelectBtn" class="select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                Select opening
+              </button>
+              <div id="openingSelectList" class="select-list" role="listbox" aria-label="Opening options"></div>
+            </div>
+          </div>
+          <div class="field selector-field">
+            <div class="select-with-thumb custom-select">
+              <img id="lineThumb" class="select-thumb is-placeholder" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" alt="" />
+              <button id="lineSelectBtn" class="select-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                Select line
+              </button>
+              <div id="lineSelectList" class="select-list" role="listbox" aria-label="Line options">
+                <div class="select-search">
+                  <div class="select-filter-row">
+                    <input id="lineSearchInput" type="search" placeholder="Search any line by name…" aria-label="Search lines across openings" autocomplete="off" />
+                    <button id="pinnedLinesBtn" class="select-filter-toggle" type="button" aria-pressed="false" aria-label="Show pinned lines" title="Show pinned lines">★</button>
+                  </div>
+                </div>
+                <div id="lineSelectOptions" class="select-options"></div>
+              </div>
+            </div>
+            <button id="dueBtn" class="ghost">Study Due Lines</button>
+          </div>
+          <div class="field mode-suggest-field">
+            <div class="mode-suggest-row">
+              <select id="modeSelect" aria-label="Mode">
+                <option value="learning">Learning</option>
+                <option value="practice">Practice</option>
+                <option value="game">Game</option>
+              </select>
+              <button id="suggestLineBtn" class="ghost" type="button">Suggest</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div id="loadingOverlay" class="overlay">
+    <div class="spinner">Loading…</div>
+  </div>
+
+  <div id="suggestionModal" class="suggestion-modal hidden" role="dialog" aria-modal="true" aria-labelledby="suggestionTitle">
+    <div class="suggestion-card">
+      <header class="suggestion-header">
+        <strong id="suggestionTitle">Suggest Line</strong>
+        <button id="suggestionClose" class="icon-button" type="button" aria-label="Close">×</button>
+      </header>
+      <div class="suggestion-grid">
+        <label>
+          Opening
+          <input id="suggestionOpeningName" type="text" autocomplete="off" />
+        </label>
+        <label>
+          Opening ID
+          <input id="suggestionOpeningId" type="text" autocomplete="off" />
+        </label>
+        <label>
+          Line name
+          <input id="suggestionLineName" type="text" autocomplete="off" />
+        </label>
+        <label>
+          Side
+          <select id="suggestionDrillSide">
+            <option value="white">White</option>
+            <option value="black">Black</option>
+          </select>
+        </label>
+        <label class="wide-field">
+          Start FEN
+          <input id="suggestionStartFen" type="text" placeholder="Blank = normal start" />
+        </label>
+        <label class="wide-field">
+          Moves
+          <textarea id="suggestionMoves" rows="5" placeholder="PGN, SAN, or UCI moves"></textarea>
+        </label>
+        <label class="wide-field">
+          Comment
+          <textarea id="suggestionComment" rows="3"></textarea>
+        </label>
+        <label class="wide-field">
+          Contact
+          <input id="suggestionContact" type="text" autocomplete="off" />
+        </label>
+      </div>
+      <div class="suggestion-actions">
+        <button id="suggestionClear" class="ghost" type="button">Clear</button>
+        <button id="suggestionSaveDraft" class="ghost" type="button">Save draft</button>
+        <button id="suggestionSubmit" class="ghost primary-action" type="button">Submit</button>
+      </div>
+      <p id="suggestionStatus" class="suggestion-status" aria-live="polite"></p>
+    </div>
+  </div>
+
+  <div id="lookupModal" class="suggestion-modal hidden" role="dialog" aria-modal="true" aria-labelledby="lookupTitle">
+    <div class="suggestion-card lookup-card">
+      <header class="suggestion-header">
+        <strong id="lookupTitle">Find Matching Openings</strong>
+        <button id="lookupClose" class="icon-button" type="button" aria-label="Close">×</button>
+      </header>
+      <p class="lookup-help">Look up a player's recent games, or paste a FEN / game directly below.</p>
+      <div class="lookup-username-row">
+        <select id="lookupSite" aria-label="Site">
+          <option value="chesscom">Chess.com</option>
+          <option value="lichess">Lichess</option>
+        </select>
+        <input id="lookupUsername" type="text" placeholder="Username" autocomplete="off" />
+        <button id="lookupFetchGames" class="ghost" type="button">Fetch recent games</button>
+      </div>
+      <p id="lookupGamesStatus" class="lookup-summary"></p>
+      <div id="lookupGamesList" class="lookup-games-list"></div>
+      <p class="lookup-help lookup-divider">— or paste a FEN / game below —</p>
+      <textarea id="lookupInput" class="lookup-input" rows="6" placeholder="1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 …&#10;or a FEN: rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2"></textarea>
+      <div class="suggestion-actions">
+        <button id="lookupClear" class="ghost" type="button">Clear</button>
+        <button id="lookupSubmit" class="ghost primary-action" type="button">Find matches</button>
+      </div>
+      <p id="lookupStatus" class="suggestion-status" aria-live="polite"></p>
+      <div id="lookupResults" class="lookup-results"></div>
+    </div>
+  </div>
+
+  <aside id="adminPanel" class="admin-panel hidden" aria-label="Admin editor">
+    <header class="admin-header">
+      <div class="admin-header-left">
+        <strong>Admin</strong>
+        <code id="adminLineId" class="admin-line-id">(no line)</code>
+      </div>
+      <div class="admin-header-actions">
+        <button id="adminNewLineToggle" class="ghost" type="button">New</button>
+        <button id="adminToggle" class="icon-button" type="button" aria-expanded="true" title="Collapse / expand">≡</button>
+      </div>
+    </header>
+    <div id="adminBody" class="admin-body">
+      <details id="adminNewLineSection" class="admin-collapsible admin-new-line-section">
+        <summary><span>New Line</span> <span class="admin-meta">local JSON + thumbnail</span></summary>
+        <div class="new-line-grid">
+          <label>
+            Opening name
+            <input id="newLineOpeningName" type="text" list="newLineOpeningNameList" autocomplete="off" />
+            <datalist id="newLineOpeningNameList"></datalist>
+          </label>
+          <label>
+            Opening ID
+            <input id="newLineOpeningId" type="text" placeholder="Auto from opening name" />
+          </label>
+          <label>
+            Line name
+            <input id="newLineName" type="text" />
+          </label>
+          <label>
+            Line ID
+            <input id="newLineId" type="text" placeholder="Auto from line name" />
+          </label>
+          <label>
+            Practice side
+            <select id="newLineDrillSide">
+              <option value="white">White</option>
+              <option value="black">Black</option>
+            </select>
+          </label>
+          <label>
+            Notation
+            <select id="newLineNotation">
+              <option value="auto">Auto</option>
+              <option value="uci">UCI</option>
+              <option value="san">SAN / PGN</option>
+            </select>
+          </label>
+          <label class="wide-field">
+            Tags
+            <input id="newLineTags" type="text" placeholder="Personal tags / notes (admin only, searchable)" />
+          </label>
+          <label class="wide-field">
+            Start FEN
+            <input id="newLineStartFen" type="text" placeholder="Blank = normal start" />
+          </label>
+          <label class="wide-field">
+            Moves
+            <textarea id="newLineMoves" rows="5" placeholder="e2e4 e7e5 g1f3 or 1. e4 e5 2. Nf3"></textarea>
+          </label>
+          <label class="checkbox-field wide-field">
+            <input id="newLineCreateOpening" type="checkbox" />
+            Create opening row
+          </label>
+        </div>
+        <div class="admin-actions">
+          <button id="newLineGenerate" class="ghost" type="button">Preview write</button>
+          <button id="newLineCopyRows" class="ghost" type="button">Copy rows</button>
+          <button id="newLineAiPrompt" class="ghost" type="button">AI prompt</button>
+          <button id="newLineSubmit" class="ghost primary-action" type="button">Add line locally</button>
+        </div>
+        <pre id="newLineOutput" class="new-line-output" aria-live="polite"></pre>
+      </details>
+
+      <details class="admin-collapsible" open>
+        <summary><span>Line Library</span> <span class="admin-meta">select to edit</span></summary>
+        <div class="admin-picker">
+          <input id="adminPickerSearch" type="search" placeholder="Search lines or openings…" aria-label="Search lines or openings" />
+          <div id="adminPickerList" class="admin-picker-list" role="listbox" aria-label="Lines"></div>
+        </div>
+      </details>
+
+      <details class="admin-collapsible" open>
+        <summary><span>Suggestion Inbox</span> <span id="adminSuggestionMeta" class="admin-meta"></span></summary>
+        <div class="admin-actions">
+          <button id="adminSuggestionRefresh" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="adminSuggestionList" class="admin-suggestion-list" aria-live="polite"></div>
+      </details>
+
+      <details class="admin-collapsible">
+        <summary><span>Opening</span> <code id="adminOpeningId" class="admin-meta admin-mono"></code></summary>
+        <label>Name <input id="adminOpeningName" type="text" placeholder="e.g. Italian Game" /></label>
+        <details class="admin-collapsible nested">
+          <summary>More</summary>
+          <label>Description <textarea id="adminOpeningDescription" rows="2"></textarea></label>
+          <label>Tags <input id="adminOpeningTags" type="text" /></label>
+        </details>
+        <div class="admin-actions">
+          <button id="adminSaveOpening" class="ghost" type="button">Save opening</button>
+        </div>
+      </details>
+
+      <details class="admin-collapsible">
+        <summary><span>Opening Tools</span> <span class="admin-meta">move / merge</span></summary>
+        <label>Target opening
+          <input id="adminTargetOpeningId" type="text" list="adminOpeningIdList" placeholder="opening_id" autocomplete="off" />
+          <datalist id="adminOpeningIdList"></datalist>
+        </label>
+        <div id="adminDuplicateOpenings" class="admin-duplicate-openings hidden" aria-live="polite"></div>
+        <p class="admin-help">Move selected line changes only this line and its nodes. Merge current opening moves every line into the target and removes the current opening row.</p>
+        <div class="admin-actions">
+          <button id="adminMoveLineOpening" class="ghost" type="button">Move selected line</button>
+          <button id="adminMergeOpening" class="ghost danger-action" type="button">Merge current opening</button>
+        </div>
+      </details>
+
+      <details class="admin-collapsible" open>
+        <summary>Line</summary>
+        <label>Name <input id="adminLineName" type="text" /></label>
+        <div class="admin-row">
+          <label>Drill side
+            <select id="adminLineDrillSide">
+              <option value="white">White</option>
+              <option value="black">Black</option>
+            </select>
+          </label>
+        </div>
+        <label>Tags <input id="adminLineTags" type="text" placeholder="Personal tags / notes (admin only, searchable)" /></label>
+        <details class="admin-collapsible nested">
+          <summary>More</summary>
+          <div class="admin-row">
+            <label>Group <input id="adminLineGroup" type="text" /></label>
+          </div>
+          <label>Start FEN <input id="adminLineStartFen" type="text" placeholder="Blank = standard start" /></label>
+        </details>
+        <div class="admin-actions">
+          <button id="adminSaveLine" class="ghost" type="button">Save line</button>
+        </div>
+      </details>
+
+      <details class="admin-collapsible">
+        <summary>Thumbnail</summary>
+        <p class="admin-help">Render a thumbnail from the current board position. Navigate with Prev/Next or play moves to set the position you want, then click Save line / Save opening.</p>
+        <div class="admin-actions">
+          <button id="adminThumbSave" class="ghost" type="button">Save line</button>
+          <button id="adminOpeningThumbSave" class="ghost" type="button">Save opening</button>
+        </div>
+      </details>
+
+      <details class="admin-collapsible" open>
+        <summary><span>Nodes</span> <span id="adminNodesMeta" class="admin-meta"></span></summary>
+        <div class="admin-actions admin-nodes-actions">
+          <button id="adminSaveDirty" class="ghost" type="button" disabled>Save all dirty</button>
+        </div>
+        <details class="admin-collapsible nested">
+          <summary>Batch paste prompts</summary>
+          <p class="admin-help">One prompt per line, applied to nodes top-to-bottom in ply order. Blank lines skip that node (leave existing). Extra lines beyond the node count are ignored.</p>
+          <textarea id="adminBatchPromptText" rows="6" placeholder="Develop the e-pawn.&#10;Control the center.&#10;..."></textarea>
+          <div class="admin-actions">
+            <button id="adminAiPrompt" class="ghost" type="button">AI prompt</button>
+            <button id="adminBatchApply" class="ghost" type="button">Apply to nodes</button>
+            <button id="adminBatchSaveAll" class="ghost" type="button" title="Apply, then save every dirty node">Apply + Save</button>
+            <button id="adminBatchClear" class="ghost" type="button" title="Clear the textarea">Clear</button>
+          </div>
+        </details>
+        <div id="adminNodes" class="admin-nodes"></div>
+      </details>
+
+      <details class="admin-collapsible">
+        <summary>Git</summary>
+        <label>Commit message
+          <input id="adminCommitMsg" type="text" placeholder="chessgym admin: edits" />
+        </label>
+        <div class="admin-actions">
+          <button id="adminCommit" class="ghost" type="button">Commit</button>
+          <button id="adminReload" class="ghost" type="button">Reload page</button>
+        </div>
+      </details>
+
+      <p id="adminStatus" class="admin-status" aria-live="polite"></p>
+    </div>
+  </aside>
+
+  <script src="libs/jquery.min.js"></script>
+  <script src="libs/chess.min.js"></script>
+  <script src="libs/chessboard-1.0.0.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

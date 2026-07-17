@@ -30,9 +30,36 @@ function Logo() {
         <div className="text-[15px] font-bold tracking-tight text-mist-100">
           your<span className="text-amber">lines</span>
         </div>
-        <div className="text-[10px] uppercase tracking-widest text-mist-500">opening lab</div>
+        <div className="text-[10px] uppercase tracking-widest text-mist-500">chess suite</div>
       </div>
     </div>
+  );
+}
+
+/** Links to the other apps in the suite (synced into public/ by sync-apps). */
+function SuiteNav() {
+  const apps = [
+    { label: 'Lines', href: '/', active: true },
+    { label: 'Play', href: '/play/' },
+    { label: 'Gym', href: '/gym/' },
+    { label: 'Review', href: '/review/' },
+  ];
+  return (
+    <nav className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-850 p-0.5">
+      {apps.map((a) => (
+        <a
+          key={a.label}
+          href={a.href}
+          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+            a.active
+              ? 'bg-amber/15 text-amber'
+              : 'text-mist-400 hover:bg-ink-700 hover:text-mist-100'
+          }`}
+        >
+          {a.label}
+        </a>
+      ))}
+    </nav>
   );
 }
 
@@ -52,6 +79,7 @@ export default function App() {
         <header className="sticky top-0 z-10 border-b border-ink-800 bg-ink-950/70 backdrop-blur">
           <div className="mx-auto flex w-full max-w-[1400px] items-center gap-4 px-4 py-3">
             <Logo />
+            <SuiteNav />
             {hasData && (
               <div className="ml-auto w-full max-w-md">
                 <ImportBar compact />

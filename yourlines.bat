@@ -35,7 +35,11 @@ if not exist "node_modules\" (
 
 REM --- Start the dev server and open the browser ---------------------------
 echo.
-echo   Starting yourlines at http://localhost:5173/
+echo   Starting the yourlines chess suite at http://localhost:5173/
+echo     Lines   http://localhost:5173/
+echo     Play    http://localhost:5173/play/
+echo     Gym     http://localhost:5173/gym/
+echo     Review  http://localhost:5173/review/
 echo   Your browser will open automatically.
 echo   Leave this window open while using the app; press Ctrl+C to stop.
 echo.

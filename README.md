@@ -1,8 +1,25 @@
-# yourlines — opening lab
+# yourlines — chess suite
 
 Study **your** chess openings. Pull your real games from Chess.com or Lichess,
 see every line you play as a named tree from broad to specific, and let Stockfish
 pinpoint where you drift off.
+
+yourlines is also the hub of a **chess suite** served from one origin:
+
+| URL        | App                                                       |
+| ---------- | --------------------------------------------------------- |
+| `/`        | **Lines** — this app (opening explorer + weak spots)      |
+| `/play/`   | **Play** — Chess Interface (analysis board, play vs SF)   |
+| `/gym/`    | **Gym** — ChessGym (opening line drills)                  |
+| `/review/` | **Review** — Chess Reviewer (game review, move classify)  |
+
+The three sub-apps live in their own repos and are snapshotted in with
+`npm run sync-apps` (see `scripts/sync-apps.mjs` — it copies from the sibling
+folders `../stockfish`, `../ChessGym`, `../ChessMoveReviewer` and injects the
+floating suite switcher `public/suite/nav.js` into each). After changing a
+sub-app, run the sync and commit here. One origin means all apps can share
+browser storage — the basis for coming cross-app features (shared profiles,
+"review this game", "train this line").
 
 ![landing](docs/landing.png)
 
