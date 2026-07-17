@@ -3,6 +3,7 @@ import { useStore } from './store/useStore';
 import { EvalProvider } from './hooks/EvalContext';
 import { ImportBar } from './components/ImportBar';
 import { ProfileBar } from './components/ProfileBar';
+import { TimeFilter } from './components/TimeFilter';
 import { DebugPanel } from './components/DebugPanel';
 import { Board } from './components/Board';
 import { LinePanel } from './components/LinePanel';
@@ -268,16 +269,17 @@ function ColorSummary() {
   );
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {btn('white', 'As White')}
-      {btn('black', 'As Black')}
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex items-center gap-2">
+        {btn('white', 'As White')}
+        {btn('black', 'As Black')}
+      </div>
+      <TimeFilter />
       {rep.games > 0 && (
         <div className="ml-auto flex items-center gap-2 text-sm">
           <span className="text-mist-500">score</span>
           <span
-            className={`font-bold tabular-nums ${
-              s >= 0.5 ? 'text-emerald' : 'text-rose'
-            }`}
+            className={`font-bold tabular-nums ${s >= 0.5 ? 'text-emerald' : 'text-rose'}`}
           >
             {Math.round(s * 100)}%
           </span>

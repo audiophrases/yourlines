@@ -19,7 +19,19 @@ import {
   type OpeningStat,
 } from '../lib/tree';
 import { logInfo, logError } from '../lib/debug';
+import { filterByWindow, isTimeWindow, type TimeWindow } from '../lib/timeFilter';
 import type { Color, Game, Site, TreeNode, Weakness } from '../lib/types';
+
+const TIME_FILTER_KEY = 'yourlines:timeFilter';
+
+function loadTimeFilter(): TimeWindow {
+  try {
+    const v = localStorage.getItem(TIME_FILTER_KEY);
+    return isTimeWindow(v) ? v : 'all';
+  } catch {
+    return 'all';
+  }
+}
 
 export interface Repertoire {
   tree: TreeNode;
@@ -40,6 +52,9 @@ interface State {
   games: Game[];
   repertoires: Record<Color, Repertoire> | null;
   color: Color;
+
+  /** Analysis time window (view scope; all games stay cached). */
+  timeFilter: TimeWindow;
 
   /** All cached accounts, most-recently-saved first. */
   profiles: ProfileSummary[];
@@ -68,6 +83,7 @@ interface State {
   clearSaved: () => Promise<void>;
   importBackupFile: (json: string) => Promise<number>;
   setColor: (c: Color) => void;
+  setTimeFilter: (w: TimeWindow) => void;
 
   navTo: (path: string[]) => void;
   push: (san: string) => boolean;
@@ -112,8 +128,12 @@ function buildRepertoire(games: Game[], color: Color): Repertoire {
   };
 }
 
-/** Build both repertoires and pick the more-played color as the default view. */
-function buildAll(games: Game[]): {
+/** Build both repertoires; pick the more-played color as the default view
+ *  unless a preferred color is given (to preserve the user's choice). */
+function buildAll(
+  games: Game[],
+  preferColor?: Color,
+): {
   repertoires: Record<Color, Repertoire>;
   color: Color;
 } {
@@ -121,11 +141,16 @@ function buildAll(games: Game[]): {
     white: buildRepertoire(games, 'white'),
     black: buildRepertoire(games, 'black'),
   };
-  const color: Color = repertoires.white.games >= repertoires.black.games ? 'white' : 'black';
+  const color: Color =
+    preferColor ?? (repertoires.white.games >= repertoires.black.games ? 'white' : 'black');
   return { repertoires, color };
 }
 
 export const useStore = create<State>((set, get) => {
+  /** Build repertoires from the full games, scoped by the active time window. */
+  const rebuild = (games: Game[], preferColor?: Color) =>
+    buildAll(filterByWindow(games, get().timeFilter), preferColor);
+
   /** Load a profile from storage into the active view. */
   const activate = (p: {
     key: string;
@@ -135,7 +160,7 @@ export const useStore = create<State>((set, get) => {
     savedAt: number;
     newestAt?: number;
   }) => {
-    const { repertoires, color } = buildAll(p.games);
+    const { repertoires, color } = rebuild(p.games);
     set({
       activeKey: p.key,
       site: p.site,
@@ -162,6 +187,7 @@ export const useStore = create<State>((set, get) => {
     games: [],
     repertoires: null,
     color: 'white',
+    timeFilter: loadTimeFilter(),
 
     profiles: [],
     activeKey: null,
@@ -199,7 +225,7 @@ export const useStore = create<State>((set, get) => {
         const newestAt = newestTimestamp(games);
         const summary = await saveProfile({ site, username, games, savedAt, newestAt });
         const profiles = await listProfiles();
-        const { repertoires, color } = buildAll(games);
+        const { repertoires, color } = rebuild(games);
         logInfo(
           'import',
           `Imported ${games.length} games (W:${repertoires.white.games} B:${repertoires.black.games}) for ${summary.key}`,
@@ -253,7 +279,7 @@ export const useStore = create<State>((set, get) => {
         const newest = newestTimestamp(merged);
         await saveProfile({ site, username, games: merged, savedAt, newestAt: newest });
         const profiles = await listProfiles();
-        const { repertoires } = buildAll(merged);
+        const { repertoires } = rebuild(merged, color);
         logInfo('refresh', `+${added} new games (total ${merged.length})`);
         set({
           games: merged,
@@ -350,6 +376,20 @@ export const useStore = create<State>((set, get) => {
     },
 
     setColor: (color) => set({ color, path: [], fen: START_FEN }),
+
+    setTimeFilter: (timeFilter) => {
+      try {
+        localStorage.setItem(TIME_FILTER_KEY, timeFilter);
+      } catch {
+        /* ignore */
+      }
+      const { games, color } = get();
+      // Rebuild against the new window, preserving the selected color.
+      const filtered = filterByWindow(games, timeFilter);
+      const { repertoires } = buildAll(filtered, color);
+      logInfo('filter', `Time window: ${timeFilter} (${filtered.length}/${games.length} games)`);
+      set({ timeFilter, repertoires, path: [], fen: START_FEN, lastAdded: undefined });
+    },
 
     navTo: (path) => set({ path, fen: fenForPath(path) }),
 
