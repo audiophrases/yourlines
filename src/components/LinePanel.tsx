@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { useStore } from '../store/useStore';
 import { useSharedEval } from '../hooks/EvalContext';
 import { nameSegments } from '../lib/openings';
-import { score } from '../lib/tree';
+import { score, sortedChildren } from '../lib/tree';
 import { formatEval } from '../lib/engine';
 import { uciToSan } from '../lib/chessUtil';
 import { gamesThroughPath } from '../lib/gamesQuery';
@@ -126,6 +126,72 @@ export function LinePanel() {
       </div>
 
       {engineOn && <EngineReadout fen={fen} color={color} />}
+
+      <OpponentReplies />
+    </div>
+  );
+}
+
+/** What opponents throw at you from the current position (shown when it's
+ *  their move): each reply's frequency and your score against it, flagging
+ *  frequent replies you score badly against. */
+function OpponentReplies() {
+  const node = useStore((s) => s.current());
+  const color = useStore((s) => s.color);
+  const push = useStore((s) => s.push);
+
+  if (!node || node.turn === color || node.games < 3) return null;
+  const replies = sortedChildren(node);
+  if (!replies.length) return null;
+  const shown = replies.slice(0, 5);
+
+  return (
+    <div className="rounded-lg border border-ink-700 bg-ink-900/60 px-3 py-2">
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-mist-400">
+          Opponents play here
+        </span>
+        <span className="text-[11px] text-mist-500">
+          {node.games} game{node.games === 1 ? '' : 's'} · your score after each
+        </span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {shown.map((child) => {
+          const freq = child.games / node.games;
+          const s = score(child);
+          const danger = freq >= 0.2 && s < 0.45 && child.games >= 3;
+          return (
+            <button
+              key={child.move}
+              onClick={() => push(child.move)}
+              title={`${child.games} game${child.games === 1 ? '' : 's'} — click to follow`}
+              className={`flex items-center gap-2 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-ink-800 ${
+                danger ? 'bg-rose/5' : ''
+              }`}
+            >
+              <span className="w-12 shrink-0 font-mono text-sm text-mist-100">{child.move}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-ink-700">
+                <div
+                  className="h-full rounded-full bg-mist-500/70"
+                  style={{ width: `${Math.max(4, freq * 100)}%` }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-[11px] tabular-nums text-mist-500">
+                {Math.round(freq * 100)}%
+              </span>
+              <div className="w-10 shrink-0 text-right">
+                <ScorePill score={s} />
+              </div>
+              <span
+                className={`w-4 shrink-0 text-center text-xs ${danger ? 'text-rose' : 'text-transparent'}`}
+                title={danger ? 'Frequent reply you score badly against' : undefined}
+              >
+                ⚠
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
