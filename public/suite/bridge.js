@@ -239,9 +239,23 @@
     var select = panel.querySelector('#yl-bridge-profile');
     var list = panel.querySelector('#yl-bridge-list');
 
+    // Games already saved in the Reviewer's archive get a check mark.
+    function reviewedUrls() {
+      var urls = {};
+      try {
+        var entries = JSON.parse(localStorage.getItem('cmr.reviewArchive.v1') || '[]');
+        (entries || []).forEach(function (e) {
+          var u = e && e.headers && (e.headers.Site || e.headers.Link);
+          if (u && String(u).indexOf('http') === 0) urls[u] = true;
+        });
+      } catch (e) {}
+      return urls;
+    }
+
     function renderGames(profile) {
       getGames(profile.key).then(function (games) {
         list.innerHTML = '';
+        var reviewed = reviewedUrls();
         var sorted = games.slice().sort(function (a, b) {
           return (b.date || '').localeCompare(a.date || '');
         });
@@ -275,7 +289,10 @@
             '</span>' +
             '<span style="color:#6b7290;flex:none;">' +
             (g.timeClass || '') + ' · ' + (g.date ? g.date.slice(0, 10) : '') +
-            '</span>';
+            '</span>' +
+            (g.url && reviewed[g.url]
+              ? '<span style="color:#57c98a;flex:none;font-weight:700;" title="Already reviewed (saved in the archive)">✓</span>'
+              : '');
           row.onclick = function () {
             reviewFill(gameToPgn(g, profile.username), profile.username, false);
             panel.remove();

@@ -4,6 +4,8 @@ import { filterByWindow, windowLabel } from '../lib/timeFilter';
 import { gamesThroughPath } from '../lib/gamesQuery';
 import { handoffToReview, handoffToPlay } from '../lib/chessUtil';
 import { nameSegments } from '../lib/openings';
+import { loadReviewsByUrl, type ReviewInfo } from '../lib/reviewArchive';
+import { relativeTime } from '../lib/storage';
 import { moveNumber } from './ui';
 import type { Game } from '../lib/types';
 
@@ -28,6 +30,9 @@ export function GamesList() {
       ),
     [games, color, path, timeFilter],
   );
+
+  // Saved reviews from the Reviewer's archive (same origin), joined by URL.
+  const reviews = useMemo(() => loadReviewsByUrl(), [matching]);
 
   const here =
     path.length === 0
@@ -67,7 +72,14 @@ export function GamesList() {
       ) : (
         <>
           {matching.slice(0, limit).map((g) => (
-            <GameRow key={g.id} g={g} atPly={path.length} username={username} navTo={navTo} />
+            <GameRow
+              key={g.id}
+              g={g}
+              atPly={path.length}
+              username={username}
+              navTo={navTo}
+              review={g.url ? reviews.get(g.url) : undefined}
+            />
           ))}
           {matching.length > limit && (
             <button
@@ -88,11 +100,13 @@ function GameRow({
   atPly,
   username,
   navTo,
+  review,
 }: {
   g: Game;
   atPly: number;
   username: string;
   navTo: (path: string[]) => void;
+  review?: ReviewInfo;
 }) {
   const oppRating = g.userColor === 'white' ? g.blackRating : g.whiteRating;
   const next = g.moves[atPly];
@@ -117,9 +131,26 @@ function GameRow({
         title={`You played ${g.userColor}`}
       />
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm text-mist-200">
-          vs {g.opponent ?? '?'}
-          {oppRating != null && <span className="text-mist-500"> ({oppRating})</span>}
+        <div className="flex items-center gap-1.5 truncate text-sm text-mist-200">
+          <span className="truncate">
+            vs {g.opponent ?? '?'}
+            {oppRating != null && <span className="text-mist-500"> ({oppRating})</span>}
+          </span>
+          {review && (
+            <span
+              title={`Reviewed ${review.savedAt ? relativeTime(review.savedAt) : ''} — ${review.blunders} blunder${review.blunders === 1 ? '' : 's'}, ${review.mistakes} mistake${review.mistakes === 1 ? '' : 's'}${review.brilliant ? `, ${review.brilliant} brilliant` : ''} (saved in the Reviewer's archive)`}
+              className="shrink-0 rounded-md border border-teal/40 bg-teal/10 px-1.5 py-0.5 text-[10px] font-semibold text-teal"
+            >
+              ✓ reviewed
+              {review.blunders + review.mistakes > 0 && (
+                <span className="ml-1 text-teal/80">
+                  {review.blunders > 0 && `${review.blunders}B`}
+                  {review.blunders > 0 && review.mistakes > 0 && '·'}
+                  {review.mistakes > 0 && `${review.mistakes}M`}
+                </span>
+              )}
+            </span>
+          )}
         </div>
         <div className="truncate text-[11px] text-mist-500">
           {g.date ? g.date.slice(0, 10) : '—'} · {g.timeClass ?? '?'} · {g.moves.length} plies
