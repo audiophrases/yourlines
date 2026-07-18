@@ -7071,6 +7071,39 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
         movesWithAnalysis = moves;
 
+        // When running inside the yourlines suite, notable moves get jump
+        // links to the other apps at the position *before* the move (the
+        // decision point): Lines = how do my games handle this position,
+        // Play = analysis board, Gym = matching trainer lines.
+        const suiteActive = typeof window.YourlinesSuite !== 'undefined';
+        let suiteFensBefore = null;
+        if (suiteActive) {
+          try {
+            const replay = new Chess();
+            suiteFensBefore = moves.map(mv => {
+              const fen = replay.fen();
+              replay.move(mv.san);
+              return fen;
+            });
+          } catch (err) {
+            suiteFensBefore = null;
+          }
+        }
+        const suiteLinkStyle =
+          'font-size:11px;padding:1px 7px;border-radius:6px;border:1px solid #4b5563;' +
+          'color:#9ca3af;text-decoration:none;white-space:nowrap;';
+        const buildSuiteLinks = (fen) => {
+          if (!fen) return '';
+          const enc = encodeURIComponent(fen);
+          return (
+            '<span class="suite-move-links" style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">' +
+              '<a style="' + suiteLinkStyle + '" href="/?fen=' + enc + '" title="How do your games handle this position? (Lines)">Lines</a>' +
+              '<a style="' + suiteLinkStyle + '" href="/play/?fen=' + enc + '" title="Open this position on the analysis board (Play)">Play</a>' +
+              '<a style="' + suiteLinkStyle + '" href="/gym/?lookup=' + enc + '" title="Find trainer lines through this position (Gym)">Gym</a>' +
+            '</span>'
+          );
+        };
+
         // Build clickable jump-nav badges that cycle through moves of each notable type
         const navOrder = ['brilliant', 'great', 'only', 'mistake', 'blunder', 'misclick??'];
         const navLabels  = { brilliant: '✦ Brilliant', great: 'Great', only: 'Only', mistake: 'Mistake', blunder: 'Blunder', 'misclick??': 'Misclick??' };
@@ -7140,6 +7173,8 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           const commentHtml = (mv.analysis && mv.analysis.text)
             ? '<p class="pl-12 text-gray-300 text-sm">' + formatText(mv.analysis.text) + '</p>'
             : '';
+          const suiteLinksHtml =
+            suiteFensBefore && accentClasses ? buildSuiteLinks(suiteFensBefore[i]) : '';
           const html =
             '<div class="' + moveClasses.join(' ') + '" data-move-index="' + i + '">' +
               '<div class="flex items-baseline gap-3">' +
@@ -7147,6 +7182,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
                 '<span class="font-bold text-lg text-white">' + mv.san + '</span>' +
                 evalHtml +
                 classificationHtml +
+                suiteLinksHtml +
               '</div>' +
               commentHtml +
               (mv.criticalMoment ? '<p class="pl-12 mt-1 text-xs text-yellow-300 bg-yellow-900/40 p-2 rounded">' + formatText('Critical Moment: ' + mv.criticalMoment) + '</p>' : '') +
@@ -7158,6 +7194,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           if (Number.isNaN(idx)) return;
           clearExploration();
           goToMove(idx, { scrollMode: 'center' });
+        });
+        // Suite links navigate; don't also trigger the row's move jump.
+        c.off('click.suiteLinks').on('click.suiteLinks', '.suite-move-links a', function (e) {
+          e.stopPropagation();
         });
       }
 
@@ -7604,6 +7644,64 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         }
       }
 
+      const ttsCoach = (function () {
+        const synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
+        if (!synth) return { speak: function () {}, cancel: function () {} };
+
+        let preferredVoice = null;
+
+        function pickVoice() {
+          const voices = synth.getVoices() || [];
+          if (!voices.length) return null;
+          const naturalEnUs = voices.find(v => /Online \(Natural\)/i.test(v.name) && /en-US/i.test(v.lang));
+          if (naturalEnUs) return naturalEnUs;
+          const naturalEn = voices.find(v => /Online \(Natural\)/i.test(v.name) && /^en/i.test(v.lang));
+          if (naturalEn) return naturalEn;
+          const enUs = voices.find(v => /^en-US/i.test(v.lang));
+          if (enUs) return enUs;
+          return voices.find(v => /^en/i.test(v.lang)) || voices[0];
+        }
+
+        function refreshVoice() { preferredVoice = pickVoice(); }
+        refreshVoice();
+        if (typeof synth.addEventListener === 'function') {
+          synth.addEventListener('voiceschanged', refreshVoice);
+        } else {
+          synth.onvoiceschanged = refreshVoice;
+        }
+
+        function speak(text) {
+          if (!text) return;
+          try {
+            synth.cancel();
+            if (!preferredVoice) refreshVoice();
+            const u = new SpeechSynthesisUtterance(text);
+            if (preferredVoice) u.voice = preferredVoice;
+            u.rate = 0.98;
+            u.pitch = 1.0;
+            u.volume = 1.0;
+            synth.speak(u);
+          } catch (_) { /* swallow */ }
+        }
+
+        function cancel() {
+          try { synth.cancel(); } catch (_) {}
+        }
+
+        return { speak: speak, cancel: cancel };
+      })();
+
+      function speakMoveCommentForIndex(idx) {
+        if (!Number.isInteger(idx) || idx < 0) { ttsCoach.cancel(); return; }
+        const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
+        const mv = moves[idx];
+        const text = mv && mv.analysis && typeof mv.analysis.text === 'string' ? mv.analysis.text.trim() : '';
+        if (!text) { ttsCoach.cancel(); return; }
+        const wordCount = text.split(/\s+/).filter(Boolean).length;
+        if (wordCount <= 3) { ttsCoach.cancel(); return; }
+        ttsCoach.speak(text);
+      }
+
         function goToMove(idx, options) {
           const moves = Array.isArray(movesWithAnalysis) ? movesWithAnalysis : [];
           if (idx < -1 || idx >= moves.length) return;
@@ -7631,6 +7729,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             showBestMoveForCurrentPosition();
           }
           syncNavigationControls();
+          speakMoveCommentForIndex(idx);
         }
 
         $('#next-btn').on('click', function(){
