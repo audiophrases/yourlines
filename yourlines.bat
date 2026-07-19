@@ -33,6 +33,10 @@ if not exist "node_modules\" (
   )
 )
 
+REM --- Pull the latest sub-app versions from the sibling repos -------------
+echo   Syncing the latest app versions into the suite...
+call npm run sync-apps
+
 REM --- Start the dev server and open the browser ---------------------------
 echo.
 echo   Starting the yourlines chess suite at http://localhost:5173/
