@@ -137,9 +137,38 @@
   host.appendChild(toggle);
   render();
 
+  /** Keep the pill clear of a host app's own fixed top-right UI (ChessGym's
+   *  admin drawer, which is resizable and collapsible): position it just left
+   *  of the drawer and follow its size. */
+  function dodgeFixedDrawers() {
+    var drawer = document.querySelector('.admin-panel');
+    if (!drawer || host.__dodging) return;
+    host.__dodging = true;
+    var reposition = function () {
+      var rect = drawer.getBoundingClientRect();
+      var visible = rect.width > 0 && rect.height > 0 && getComputedStyle(drawer).display !== 'none';
+      host.style.right = visible ? Math.max(10, window.innerWidth - rect.left + 10) + 'px' : '10px';
+    };
+    reposition();
+    window.addEventListener('resize', reposition);
+    if (typeof ResizeObserver === 'function') {
+      new ResizeObserver(reposition).observe(drawer);
+    }
+    new MutationObserver(reposition).observe(drawer, {
+      attributes: true,
+      attributeFilter: ['class', 'style'],
+    });
+  }
+
   function mount() {
-    if (document.body) document.body.appendChild(host);
-    else document.addEventListener('DOMContentLoaded', mount);
+    if (!document.body) {
+      document.addEventListener('DOMContentLoaded', mount);
+      return;
+    }
+    document.body.appendChild(host);
+    // Host apps may build their UI after load — check again shortly.
+    dodgeFixedDrawers();
+    setTimeout(dodgeFixedDrawers, 1000);
   }
   mount();
 })();

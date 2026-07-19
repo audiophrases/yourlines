@@ -137,9 +137,10 @@ function GameRow({
             {oppRating != null && <span className="text-mist-500"> ({oppRating})</span>}
           </span>
           {review && (
-            <span
-              title={`Reviewed ${review.savedAt ? relativeTime(review.savedAt) : ''} — ${review.blunders} blunder${review.blunders === 1 ? '' : 's'}, ${review.mistakes} mistake${review.mistakes === 1 ? '' : 's'}${review.brilliant ? `, ${review.brilliant} brilliant` : ''} (saved in the Reviewer's archive)`}
-              className="shrink-0 rounded-md border border-teal/40 bg-teal/10 px-1.5 py-0.5 text-[10px] font-semibold text-teal"
+            <a
+              href={`/review/?archive=${encodeURIComponent(review.id)}`}
+              title={`Reviewed ${review.savedAt ? relativeTime(review.savedAt) : ''} — ${review.blunders} blunder${review.blunders === 1 ? '' : 's'}, ${review.mistakes} mistake${review.mistakes === 1 ? '' : 's'}${review.brilliant ? `, ${review.brilliant} brilliant` : ''}. Click to re-open the saved review.`}
+              className="shrink-0 rounded-md border border-teal/40 bg-teal/10 px-1.5 py-0.5 text-[10px] font-semibold text-teal transition-colors hover:bg-teal/25"
             >
               ✓ reviewed
               {review.blunders + review.mistakes > 0 && (
@@ -149,7 +150,7 @@ function GameRow({
                   {review.mistakes > 0 && `${review.mistakes}M`}
                 </span>
               )}
-            </span>
+            </a>
           )}
         </div>
         <div className="truncate text-[11px] text-mist-500">

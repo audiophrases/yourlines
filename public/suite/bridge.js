@@ -239,14 +239,15 @@
     var select = panel.querySelector('#yl-bridge-profile');
     var list = panel.querySelector('#yl-bridge-list');
 
-    // Games already saved in the Reviewer's archive get a check mark.
+    // Games already saved in the Reviewer's archive get a check mark that
+    // re-opens the saved review (?archive= deep link). Maps url -> entry id.
     function reviewedUrls() {
       var urls = {};
       try {
         var entries = JSON.parse(localStorage.getItem('cmr.reviewArchive.v1') || '[]');
         (entries || []).forEach(function (e) {
           var u = e && e.headers && (e.headers.Site || e.headers.Link);
-          if (u && String(u).indexOf('http') === 0) urls[u] = true;
+          if (u && String(u).indexOf('http') === 0 && e.id) urls[u] = e.id;
         });
       } catch (e) {}
       return urls;
@@ -291,8 +292,14 @@
             (g.timeClass || '') + ' · ' + (g.date ? g.date.slice(0, 10) : '') +
             '</span>' +
             (g.url && reviewed[g.url]
-              ? '<span style="color:#57c98a;flex:none;font-weight:700;" title="Already reviewed (saved in the archive)">✓</span>'
+              ? '<span data-archive-id="' + reviewed[g.url] + '" style="color:#57c98a;flex:none;font-weight:700;cursor:pointer;" title="Already reviewed — click to re-open the saved review">✓</span>'
               : '');
+          if (g.url && reviewed[g.url]) {
+            row.querySelector('[data-archive-id]').addEventListener('click', function (ev) {
+              ev.stopPropagation();
+              location.href = '/review/?archive=' + encodeURIComponent(reviewed[g.url]);
+            });
+          }
           row.onclick = function () {
             reviewFill(gameToPgn(g, profile.username), profile.username, false);
             panel.remove();

@@ -858,6 +858,11 @@
 
       function triggerAutoGameLoadIfNeeded() {
         if (autoGameLoadInitiated) return;
+        // Opening a saved review via ?archive= — don't race it with an
+        // auto-loaded game analysis.
+        try {
+          if (new URLSearchParams(window.location.search || '').has('archive')) return;
+        } catch (err) { /* ignore */ }
         const existingPgn = ($('#pgn-input').val() || '').trim();
         if (existingPgn || autoAnalyzeOnLoadPending) return;
         const username = getRawPlayerNameInput() || DEFAULT_PLAYER_NAME;
@@ -7813,6 +7818,27 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             }
           }
         });
+
+        // Deep link: ?archive=<id> re-opens a saved review directly. Used by
+        // the yourlines suite ("✓ reviewed" badges in Lines link back here);
+        // also works for any bookmarked URL. Slightly delayed so it wins over
+        // the boot-time auto-load/auto-analysis flows.
+        (function () {
+          let params;
+          try {
+            params = new URLSearchParams(window.location.search);
+          } catch (err) {
+            return;
+          }
+          const archiveId = params.get('archive');
+          if (!archiveId) return;
+          setTimeout(() => {
+            const ok = loadArchiveEntryById(archiveId);
+            if (!ok) {
+              showError('Could not find that saved review — it may have been deleted on this device.');
+            }
+          }, 400);
+        })();
       });
     </script>
 </body>
