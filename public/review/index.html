@@ -7097,14 +7097,20 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         const suiteLinkStyle =
           'font-size:11px;padding:1px 7px;border-radius:6px;border:1px solid #4b5563;' +
           'color:#9ca3af;text-decoration:none;white-space:nowrap;';
+        // target=named-tab: these open (or reuse) a fixed tab per app rather
+        // than navigating this Reviewer tab away — so checking a position in
+        // Lines/Play/Gym mid-review never interrupts an in-progress analysis.
+        // No rel=noopener here on purpose: these targets are always our own
+        // same-origin suite pages, and noopener would force a brand-new tab
+        // on every click instead of reusing the named one.
         const buildSuiteLinks = (fen) => {
           if (!fen) return '';
           const enc = encodeURIComponent(fen);
           return (
             '<span class="suite-move-links" style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">' +
-              '<a style="' + suiteLinkStyle + '" href="/?fen=' + enc + '" title="How do your games handle this position? (Lines)">Lines</a>' +
-              '<a style="' + suiteLinkStyle + '" href="/play/?fen=' + enc + '" title="Open this position on the analysis board (Play)">Play</a>' +
-              '<a style="' + suiteLinkStyle + '" href="/gym/?lookup=' + enc + '" title="Find trainer lines through this position (Gym)">Gym</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-lines" href="/?fen=' + enc + '" title="How do your games handle this position? (opens Lines in its own tab)">Lines</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-play" href="/play/?fen=' + enc + '" title="Open this position on the analysis board (opens Play in its own tab)">Play</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-gym" href="/gym/?lookup=' + enc + '" title="Find trainer lines through this position (opens Gym in its own tab)">Gym</a>' +
             '</span>'
           );
         };

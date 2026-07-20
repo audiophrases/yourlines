@@ -61,17 +61,28 @@ export function gameToPgn(game: Game, username: string): string {
   return `${headers}\n${body.trim()} ${result}\n`;
 }
 
+/**
+ * Open (or reuse) a fixed tab per suite app rather than navigating this Lines
+ * tab away — so sending a game/line to another app never interrupts whatever
+ * you're doing here, and returning to Lines finds it exactly as you left it.
+ */
+function openSuiteTab(url: string, appId: 'play' | 'gym' | 'review'): void {
+  const win = window.open(url, `yourlines-${appId}`);
+  if (win) win.focus();
+  else window.location.href = url; // popup blocked — fall back to same-tab nav
+}
+
 /** Open the Gym app with a line queued for lookup/training. */
 export function handoffToGym(line: string[]): void {
-  window.location.href = `/gym/?lookup=${encodeURIComponent(line.join(' '))}`;
+  openSuiteTab(`/gym/?lookup=${encodeURIComponent(line.join(' '))}`, 'gym');
 }
 
 /** Open a full game on the analysis board (/play/), landing on the final position. */
 export function handoffToPlay(game: Game, username: string): void {
-  window.location.href = `/play/?pgn=${encodeURIComponent(gameToPgn(game, username))}`;
+  openSuiteTab(`/play/?pgn=${encodeURIComponent(gameToPgn(game, username))}`, 'play');
 }
 
-/** Hand a game off to the Reviewer app (/review/) and navigate there. */
+/** Hand a game off to the Reviewer app (/review/) in its own tab. */
 export function handoffToReview(game: Game, username: string): void {
   try {
     localStorage.setItem(
@@ -81,5 +92,5 @@ export function handoffToReview(game: Game, username: string): void {
   } catch {
     /* storage unavailable — the navigation still lands on /review/ */
   }
-  window.location.href = '/review/';
+  openSuiteTab('/review/', 'review');
 }

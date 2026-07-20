@@ -136,10 +136,13 @@ function GameRow({
             vs {g.opponent ?? '?'}
             {oppRating != null && <span className="text-mist-500"> ({oppRating})</span>}
           </span>
+          {/* No rel="noopener" — same-origin suite target; noopener would
+              force a fresh tab each click instead of reusing "yourlines-review". */}
           {review && (
             <a
               href={`/review/?archive=${encodeURIComponent(review.id)}`}
-              title={`Reviewed ${review.savedAt ? relativeTime(review.savedAt) : ''} — ${review.blunders} blunder${review.blunders === 1 ? '' : 's'}, ${review.mistakes} mistake${review.mistakes === 1 ? '' : 's'}${review.brilliant ? `, ${review.brilliant} brilliant` : ''}. Click to re-open the saved review.`}
+              target="yourlines-review"
+              title={`Reviewed ${review.savedAt ? relativeTime(review.savedAt) : ''} — ${review.blunders} blunder${review.blunders === 1 ? '' : 's'}, ${review.mistakes} mistake${review.mistakes === 1 ? '' : 's'}${review.brilliant ? `, ${review.brilliant} brilliant` : ''}. Opens the saved review in its own tab.`}
               className="shrink-0 rounded-md border border-teal/40 bg-teal/10 px-1.5 py-0.5 text-[10px] font-semibold text-teal transition-colors hover:bg-teal/25"
             >
               ✓ reviewed

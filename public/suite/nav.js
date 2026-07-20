@@ -71,17 +71,39 @@
     gym: 'Find trainer lines matching the current position',
   };
 
+  /** Open (or reuse) a fixed tab per suite app, so switching apps never
+   *  navigates the tab you're leaving — whatever is running there (an
+   *  in-progress engine analysis, unsaved input) survives untouched. Repeat
+   *  visits to the same app reuse its tab instead of piling up duplicates. */
+  function openSuiteTab(url, appId) {
+    var win = null;
+    try {
+      win = window.open(url, 'yourlines-' + appId);
+    } catch (e) {
+      win = null;
+    }
+    if (win) {
+      try {
+        win.focus();
+      } catch (e) {}
+    } else {
+      // Popup blocked (rare for a direct click response) — fall back to a
+      // same-tab navigation rather than silently doing nothing.
+      location.href = url;
+    }
+  }
+
   function makeItem(app) {
     var a = document.createElement('a');
     a.href = app.href;
     a.textContent = app.icon + ' ' + app.label;
     a.title = app.label;
     var isActive = app.id === active;
-    if (!isActive && CONTEXT_TITLES[app.id]) {
-      a.title = CONTEXT_TITLES[app.id];
+    if (!isActive) {
+      a.title = CONTEXT_TITLES[app.id] || ('Open ' + app.label + ' in its own tab');
       a.addEventListener('click', function (e) {
         e.preventDefault();
-        location.href = hrefWithContext(app);
+        openSuiteTab(hrefWithContext(app), app.id);
       });
     }
     a.style.cssText =

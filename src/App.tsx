@@ -114,53 +114,40 @@ function Logo() {
   );
 }
 
-/** The current board as a deep-link target for the analysis board (/play/):
- *  the line so far as numbered movetext, or nothing at the start position. */
-function playHref(): string {
-  const { path, fen } = useStore.getState();
-  if (path.length) return `/play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`;
-  if (fen && !fen.startsWith('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR'))
-    return `/play/?fen=${encodeURIComponent(fen)}`;
-  return '/play/';
-}
+const START_FEN_PREFIX = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 
-/** Links to the other apps in the suite (synced into public/ by sync-apps). */
+/** Links to the other apps in the suite (synced into public/ by sync-apps).
+ *  Each opens in its own reusable tab (target="yourlines-<app>") rather than
+ *  navigating this Lines tab away — so switching apps never interrupts
+ *  whatever is running here, and coming back to Lines finds it untouched. */
 function SuiteNav() {
+  const path = useStore((s) => s.path);
+  const fen = useStore((s) => s.fen);
+
+  const playHref = path.length
+    ? `/play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
+    : fen && !fen.startsWith(START_FEN_PREFIX)
+      ? `/play/?fen=${encodeURIComponent(fen)}`
+      : '/play/';
+  const gymHref = path.length ? `/gym/?lookup=${encodeURIComponent(path.join(' '))}` : '/gym/';
+
   const apps = [
-    { label: 'Lines', href: '/', active: true },
-    { label: 'Play', href: '/play/' },
-    { label: 'Gym', href: '/gym/' },
-    { label: 'Review', href: '/review/' },
+    { label: 'Lines', href: '/', active: true, title: undefined as string | undefined },
+    { label: 'Play', href: playHref, title: 'Open the analysis board with the current position' },
+    { label: 'Gym', href: gymHref, title: 'Find trainer lines matching the current position' },
+    { label: 'Review', href: '/review/', title: undefined as string | undefined },
   ];
   return (
     <nav className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-850 p-0.5">
       {apps.map((a) => (
+        // No rel="noopener" — these targets are always our own same-origin
+        // suite pages, and noopener would force a fresh tab every click
+        // instead of reusing the named one (target="yourlines-<app>").
         <a
           key={a.label}
           href={a.href}
-          title={
-            a.label === 'Play'
-              ? 'Open the analysis board with the current position'
-              : a.label === 'Gym'
-                ? 'Find trainer lines matching the current position'
-                : undefined
-          }
-          onClick={
-            a.label === 'Play'
-              ? (e) => {
-                  e.preventDefault();
-                  window.location.href = playHref();
-                }
-              : a.label === 'Gym'
-                ? (e) => {
-                    e.preventDefault();
-                    const { path } = useStore.getState();
-                    window.location.href = path.length
-                      ? `/gym/?lookup=${encodeURIComponent(path.join(' '))}`
-                      : '/gym/';
-                  }
-                : undefined
-          }
+          title={a.title}
+          target={a.active ? undefined : `yourlines-${a.label.toLowerCase()}`}
           className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
             a.active
               ? 'bg-amber/15 text-amber'
