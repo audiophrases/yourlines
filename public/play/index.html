@@ -1020,7 +1020,8 @@
   }
 
   .highlight-selection {
-    box-shadow: inset 0 0 0 3px #f2ff5f !important;
+    background: rgba(255, 230, 0, 0.4) !important;
+    box-shadow: inset 0 0 0 3px rgba(255, 215, 0, 0.8) !important;
   }
 
   .best-move-primary,
@@ -1055,9 +1056,49 @@
     background: rgba(247, 211, 82, 0.9);
   }
 
+  .highlight-last-move-from,
+  .highlight-last-move-to {
+    background: rgba(255, 215, 0, 0.28) !important;
+    box-shadow: inset 0 0 0 2px rgba(255, 200, 0, 0.5);
+  }
+
+  .highlight-last-move-to {
+    background: rgba(255, 215, 0, 0.38) !important;
+  }
+
   .highlight-move-from,
   .highlight-move-to {
     background: rgba(255, 255, 0, 0.38) !important;
+  }
+
+  .legal-move-hint {
+    position: relative;
+  }
+
+  .legal-move-hint::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 32%;
+    height: 32%;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.25);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .legal-move-hint.capture::after {
+    width: 100%;
+    height: 100%;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: inset 0 0 0 5px rgba(0, 0, 0, 0.25);
+  }
+
+  .board-b72b1 .square-55d63 {
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
   }
 
   .highlight-piece-move-target {
@@ -1448,6 +1489,7 @@
       let archiveSearchAbortController = null;
       let archiveSearchLastSource = ARCHIVE_SEARCH_SOURCES.CHESSCOM;
       const ENGINE_AUTOSTART_STORAGE_KEY = 'stockfish-ui:engine-autostart-disabled';
+      const ARCHIVE_USERNAME_STORAGE_KEY = 'stockfish-ui:archive-username';
       let baseFen = game.fen();
       let selectedSquare = null;
       let moveSourceSquare = null;
@@ -1952,6 +1994,32 @@
           const storage = window.localStorage;
           if (!storage) return;
           storage.setItem(ENGINE_AUTOSTART_STORAGE_KEY, engineAutostartDisabled ? 'true' : 'false');
+        } catch (error) {
+          // Ignore storage errors (e.g., blocked cookies).
+        }
+      }
+
+      function readStoredArchiveUsername() {
+        if (typeof window === 'undefined') {
+          return '';
+        }
+        try {
+          const storage = window.localStorage;
+          if (!storage) return '';
+          return storage.getItem(ARCHIVE_USERNAME_STORAGE_KEY) || '';
+        } catch (error) {
+          return '';
+        }
+      }
+
+      function persistArchiveUsername(username) {
+        if (typeof window === 'undefined') {
+          return;
+        }
+        try {
+          const storage = window.localStorage;
+          if (!storage) return;
+          storage.setItem(ARCHIVE_USERNAME_STORAGE_KEY, username);
         } catch (error) {
           // Ignore storage errors (e.g., blocked cookies).
         }
@@ -3387,6 +3455,7 @@
           return;
         }
         clearInputModalError();
+        persistArchiveUsername(username);
         if (archiveSearchAbortController && typeof archiveSearchAbortController.abort === 'function') {
           archiveSearchAbortController.abort();
         }
@@ -3481,6 +3550,9 @@
         }
         if (archiveResultsElement) {
           archiveResultsElement.hidden = archiveSearchEntries.length === 0;
+        }
+        if (archiveSearchInput && !archiveSearchInput.value.trim().length) {
+          archiveSearchInput.value = readStoredArchiveUsername();
         }
         if (inputModalTextarea) {
           inputModalTextarea.value = typeof presetText === 'string' ? presetText : '';
@@ -5017,12 +5089,18 @@
     }
 
     if (moveSourceSquare === square) {
+      if (square === dragStartSquare && (Date.now() - dragStartTime) < 500) {
+        dragStartSquare = null;
+        return;
+      }
       moveSourceSquare = null;
       applySelectionHighlights();
+      clearLegalMoveHighlights();
       return;
     }
 
     clearHighlights();
+    clearLegalMoveHighlights();
     clearRatings();
 
     const move = game.move({ from: moveSourceSquare, to: square, promotion: 'q' });
@@ -5039,6 +5117,9 @@
         moveSourceSquare = square;
       }
       applySelectionHighlights();
+      if (moveSourceSquare) {
+        highlightLegalMoves(moveSourceSquare);
+      }
     }
   }
 
@@ -5064,7 +5145,7 @@
       }
       board = Chessboard('board', {
         position: fen,
-        draggable: editMode,
+        draggable: true,
         sparePieces: editMode,
         orientation,
         onDragStart,
@@ -5085,17 +5166,25 @@
 
     if (!board) return;
 
-    board.resize();
-    syncEvalBarWidth();
-    requestAnimationFrame(() => {
-      if (!board) return;
+    if (needsRecreate) {
       board.resize();
       syncEvalBarWidth();
-    });
+      requestAnimationFrame(() => {
+        if (!board) return;
+        board.resize();
+        syncEvalBarWidth();
+        applySelectionHighlights();
+        applySpareSelection();
+        updateBestMoveDisplay();
+        highlightLastMove();
+      });
+    }
+
     applySelectionHighlights();
     applySpareSelection();
     updateNavigationButtons();
     updateBestMoveDisplay();
+    highlightLastMove();
   }
 
   function rebindBoardHandlers() {
@@ -5159,17 +5248,72 @@
     updatePlayerSummaryFromGame();
   }
 
+  let dragStartSquare = null;
+  let dragStartTime = 0;
+  let isDragging = false;
+
+  function clearLastMoveHighlights() {
+    boardEl.find('.highlight-last-move-from, .highlight-last-move-to')
+           .removeClass('highlight-last-move-from highlight-last-move-to');
+  }
+
+  function highlightLastMove() {
+    clearLastMoveHighlights();
+    if (editMode || navigationIndex <= 0 || !moveHistory.length) return;
+    const lastMove = moveHistory[navigationIndex - 1];
+    if (!lastMove || !lastMove.from || !lastMove.to) return;
+    boardEl.find(`.square-${lastMove.from}`).addClass('highlight-last-move-from');
+    boardEl.find(`.square-${lastMove.to}`).addClass('highlight-last-move-to');
+  }
+
+  function clearLegalMoveHighlights() {
+    boardEl.find('.legal-move-hint').remove();
+  }
+
+  function highlightLegalMoves(square) {
+    clearLegalMoveHighlights();
+    if (!square || editMode || freezeMode || game.game_over()) return;
+    const moves = game.moves({ square: square, verbose: true });
+    if (!moves || !moves.length) return;
+    
+    for (const move of moves) {
+      const isCapture = move.flags.includes('c') || move.flags.includes('e');
+      const hint = document.createElement('div');
+      hint.className = `legal-move-hint ${isCapture ? 'capture' : ''}`;
+      boardEl.find(`.square-${move.to}`).append(hint);
+    }
+  }
+
   function onDragStart(src, piece) {
     if (replayMode) stopReplay();
-    if (editMode) return false;
-    if (freezeMode) return false;
-    return !game.game_over() && ((game.turn() === 'w' && piece[0] === 'w') || (game.turn() === 'b' && piece[0] === 'b'));
+    if (editMode) return true;
+    if (freezeMode || game.game_over() || pieceMovesMode) return false;
+    
+    const turn = game.turn();
+    const isOwnPiece = (turn === 'w' && piece[0] === 'w') || (turn === 'b' && piece[0] === 'b');
+    
+    if (!isOwnPiece) return false;
+
+    isDragging = true;
+    dragStartSquare = src;
+    dragStartTime = Date.now();
+    
+    if (moveSourceSquare !== src) {
+      moveSourceSquare = src;
+      applySelectionHighlights();
+    }
+    highlightLegalMoves(src);
+    
+    return true;
   }
 
   function onDrop(src, tgt, piece, newPos) {
+    isDragging = false;
     if (replayMode) stopReplay();
-    clearHighlights(); clearRatings();
+    clearLegalMoveHighlights();
+    
     if (editMode) {
+      clearHighlights(); clearRatings();
       const previousFen = game.fen();
       const entries = Object.entries(newPos);
       game.clear();
@@ -5196,11 +5340,20 @@
       renderBoard(); updateStatus(); requestAnalysis({ highlight: shouldHighlightBest && bestMoveVisible, revealBest: bestMoveVisible });
       return;
     }
+    
     if (freezeMode && !editMode) return 'snapback';
+    
+    if (src === tgt) {
+      return 'snapback';
+    }
+    
     const m = game.move({from:src,to:tgt,promotion:'q'});
     if (!m) return 'snapback';
+    
     playMoveSound(m);
     recordMove(m);
+    moveSourceSquare = null;
+    applySelectionHighlights();
     renderBoard(); updateStatus(); requestAnalysis({ highlight: shouldHighlightBest && bestMoveVisible, revealBest: bestMoveVisible });
   }
 

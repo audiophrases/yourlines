@@ -136,6 +136,7 @@ function SuiteNav() {
     { label: 'Play', href: playHref, title: 'Open the analysis board with the current position' },
     { label: 'Gym', href: gymHref, title: 'Find trainer lines matching the current position' },
     { label: 'Review', href: '/review/', title: undefined as string | undefined },
+    { label: 'Puzzles', href: '/puzzles/', title: 'Play puzzles from your own lost games' },
   ];
   return (
     <nav className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-850 p-0.5">

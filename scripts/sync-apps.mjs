@@ -64,6 +64,12 @@ const APPS = [
     src: join(siblings, 'ChessMoveReviewer'),
     include: ['index.html', 'favicon.svg', 'engine', 'sounds'],
   },
+  {
+    name: 'puzzles',
+    title: 'Your Chess Puzzles',
+    src: join(siblings, 'yourchesspuzzles'),
+    include: ['index.html', 'libs', 'pieces', 'sounds', 'engine'],
+  },
 ];
 
 let totalBytes = 0;

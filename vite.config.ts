@@ -15,7 +15,7 @@ import { join, extname, resolve } from 'node:path'
  *    some classic <script src> requests, e.g. Sec-Fetch-Dest: script for
  *    files it tries to treat as modules).
  */
-const SUITE_APPS = ['play', 'gym', 'review']
+const SUITE_APPS = ['play', 'gym', 'review', 'puzzles']
 const SUITE_PREFIXES = [...SUITE_APPS, 'suite']
 
 const MIME: Record<string, string> = {
@@ -59,7 +59,7 @@ function suiteApps(): Plugin {
         return
       }
     }
-    const m = url.match(/^\/(play|gym|review|suite)\/(.*)$/)
+    const m = url.match(/^\/(play|gym|review|puzzles|suite)\/(.*)$/)
     if (!m || !SUITE_PREFIXES.includes(m[1])) return next()
     let rel: string
     try {

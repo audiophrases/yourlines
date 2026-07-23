@@ -10,6 +10,7 @@
     { id: 'play', label: 'Play', href: '/play/', icon: '⚔' },
     { id: 'gym', label: 'Gym', href: '/gym/', icon: '🏋' },
     { id: 'review', label: 'Review', href: '/review/', icon: '🔎' },
+    { id: 'puzzles', label: 'Puzzles', href: '/puzzles/', icon: '🧩' },
   ];
 
   function currentApp() {
@@ -17,6 +18,7 @@
     if (p.indexOf('/play/') === 0) return 'play';
     if (p.indexOf('/gym/') === 0) return 'gym';
     if (p.indexOf('/review/') === 0) return 'review';
+    if (p.indexOf('/puzzles/') === 0) return 'puzzles';
     return 'lines';
   }
 
