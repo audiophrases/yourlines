@@ -169,6 +169,14 @@
     var NOT_LOST_CP = -350;        // only puzzle positions where you weren't already losing badly
     var MATE = 100000;
     var CACHE_KEY = 'ycp.puzzles.v1';
+    var USER_KEY = 'ycp.lastuser.v1';
+    // Derived from our own path (…/puzzles/…) so suite links work whether
+    // this is served from the origin root or a sub-path like /yourlines/
+    // (GitHub Pages project site).
+    var SUITE_BASE = (function () {
+      var i = location.pathname.indexOf('/puzzles/');
+      return i >= 0 ? location.pathname.slice(0, i + 1) : '/';
+    })();
 
     function clampInt(v, lo, hi, dflt) { var n = parseInt(v, 10); if (!isFinite(n)) return dflt; return Math.max(lo, Math.min(hi, n)); }
     function $id(id) { return document.getElementById(id); }
@@ -258,6 +266,13 @@
 
     function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
     function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
+    function loadLastUser() { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; } }
+    function saveLastUser() { try { localStorage.setItem(USER_KEY, JSON.stringify({ site: state.site, username: state.username })); } catch (e) {} }
+    // persist solved state so a reload knows which puzzles are still open
+    function markSolvedInCache(p) {
+      var cache = loadCache();
+      if (cache.byGame && cache.byGame[p.gameId]) { cache.byGame[p.gameId].solved = true; saveCache(cache); }
+    }
 
     function renderSource() {
       var el = $id('source');
@@ -267,9 +282,11 @@
           ' <span class="muted" style="font-size:13px">· ' + state.lostGames.length + ' lost games</span>';
         $id('setupHint').textContent = 'Scanning your ' + Math.min(MAX_GAMES, state.lostGames.length) + ' most recent losses at depth ' + GEN_DEPTH + '.';
       } else {
+        var last = loadLastUser();
+        if (last && last.site === 'lichess') state.site = 'lichess';
         el.innerHTML =
-          '<div class="seg" id="siteSeg"><button data-site="chesscom" class="on">Chess.com</button><button data-site="lichess">Lichess</button></div>' +
-          '<input id="userInput" class="text" placeholder="username" spellcheck="false" autocapitalize="none" style="flex:1;min-width:160px" />';
+          '<div class="seg" id="siteSeg"><button data-site="chesscom"' + (state.site === 'lichess' ? '' : ' class="on"') + '>Chess.com</button><button data-site="lichess"' + (state.site === 'lichess' ? ' class="on"' : '') + '>Lichess</button></div>' +
+          '<input id="userInput" class="text" placeholder="username" spellcheck="false" autocapitalize="none" style="flex:1;min-width:160px" value="' + escapeHtml(last && last.username || '') + '" />';
         el.querySelectorAll('#siteSeg button').forEach(function (b) {
           b.onclick = function () {
             state.site = b.getAttribute('data-site');
@@ -277,7 +294,9 @@
           };
         });
         $id('userInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') $id('buildBtn').click(); });
-        $id('setupHint').textContent = 'No games from Lines found — enter a username to fetch recent games.';
+        $id('setupHint').textContent = last && last.username
+          ? 'Welcome back — finding your latest blunder…'
+          : 'No games from Lines found — enter a username to fetch recent games.';
       }
     }
 
@@ -389,7 +408,8 @@
       };
     }
 
-    async function runBuild() {
+    async function runBuild(auto) {
+      var autoJump = auto === true;   // page-load flow: jump straight into the newest unsolved puzzle
       if (!engine.available) { setSetupError('This browser blocked the chess engine (WebAssembly worker).'); return; }
       $id('buildBtn').disabled = true;
       if (state.source === 'manual') {
@@ -398,6 +418,7 @@
           setProgress('Fetching games…', 5);
           var all = await fetchGames(state.site, state.username);
           state.lostGames = all.filter(function (g) { return g.result === 'loss'; });
+          saveLastUser();
           if (!state.lostGames.length) { setSetupError('No recent lost games found for that account.'); $id('buildBtn').disabled = false; return; }
         } catch (e) { setSetupError(e.message || 'Could not fetch games.'); $id('buildBtn').disabled = false; return; }
       }
@@ -433,12 +454,20 @@
         if (puzzle) {
           state.puzzles.push(puzzle);
           if (!startedSolving) { startedSolving = true; $id('startSolvingBtn').classList.remove('hide'); }
+          // On page load, games arrive newest-first: the first unsolved puzzle
+          // is the most recent blunder — show it immediately, keep building.
+          if (autoJump && !puzzle.solved && $id('player').classList.contains('hide')) {
+            state.idx = state.puzzles.length - 1;
+            showPuzzle();
+          } else refreshPlayerChrome();
         }
       }
+      var shownP = $id('player').classList.contains('hide') ? null : curPuzzle();
       state.puzzles.sort(function (a, b) { return b.loss - a.loss; });
+      if (shownP) { var si = state.puzzles.indexOf(shownP); if (si >= 0) state.idx = si; }
+      refreshPlayerChrome();
       setProgress('Done — found ' + state.puzzles.length + ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' from ' + games.length + ' losses.', 100);
       $id('buildBtn').disabled = false;
-      if (state.puzzles.length && !$id('player').classList.contains('hide')) renderPuzzleList();
       if (state.puzzles.length) $id('startSolvingBtn').classList.remove('hide');
       else setSetupError('No clear one-move blunders found in those games. Try scanning more (?maxgames=20) or a deeper look (?depth=14).');
     }
@@ -499,6 +528,13 @@
     }
 
     function setStatus(msg, cls) { var s = $id('status'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
+    // refresh counter/solved/list while a background build keeps adding puzzles
+    function refreshPlayerChrome() {
+      if ($id('player').classList.contains('hide')) return;
+      $id('counter').textContent = 'Puzzle ' + (state.idx + 1) + ' / ' + state.puzzles.length;
+      updateSolvedCount();
+      renderPuzzleList();
+    }
     function updateSolvedCount() {
       var n = state.puzzles.filter(function (p) { return p.solved; }).length;
       $id('solvedCount').textContent = 'Solved ' + n + ' / ' + state.puzzles.length;
@@ -538,6 +574,7 @@
       var good = uci === p.bestUci || loss <= ACCEPT_CP;
       if (good) {
         p.solved = true;
+        markSolvedInCache(p);
         solveState = 'solved';
         clearHighlights(); hl(mv.from, 'ycp-from'); hl(mv.to, 'ycp-to');
         setStatus('Solved! ' + mv.san + ' holds — eval ' + fmtCp(afterCp) + ' (you kept your position).', 'good');
@@ -588,7 +625,7 @@
         '<div style="margin-top:6px; color:var(--rose)">In the game you played <b>' + escapeHtml(playedSan) + '</b>, ' + playedTail + '</div>';
       $id('solText').innerHTML = html;
       // Play link carries the puzzle position; game link opens the source game.
-      var playHref = '/play/?fen=' + encodeURIComponent(p.fen);
+      var playHref = SUITE_BASE + 'play/?fen=' + encodeURIComponent(p.fen);
       $id('playLink').setAttribute('href', playHref);
       var gl = $id('gameLink');
       if (p.url) { gl.setAttribute('href', p.url); gl.classList.remove('hide'); } else { gl.classList.add('hide'); }
@@ -634,7 +671,15 @@
 
     // The suite bridge (window.YourlinesSuite) loads via a deferred script, so
     // wait for DOMContentLoaded before detecting the source.
-    function init() { detectSource().then(renderSource); }
+    // If we already know who the user is (suite profile or remembered username),
+    // build immediately and drop them into their most recent unsolved puzzle.
+    function init() {
+      detectSource().then(function () {
+        renderSource();
+        var last = loadLastUser();
+        if (state.source === 'suite' || (state.source === 'manual' && last && last.username)) runBuild(true);
+      });
+    }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();
   })();

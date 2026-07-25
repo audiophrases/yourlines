@@ -7103,14 +7103,21 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         // No rel=noopener here on purpose: these targets are always our own
         // same-origin suite pages, and noopener would force a brand-new tab
         // on every click instead of reusing the named one.
+        // Derived from our own path (…/review/…) so these links work whether
+        // the suite is served from the origin root or a sub-path like
+        // /yourlines/ (GitHub Pages project site).
+        const SUITE_BASE = (() => {
+          const i = location.pathname.indexOf('/review/');
+          return i >= 0 ? location.pathname.slice(0, i + 1) : '/';
+        })();
         const buildSuiteLinks = (fen) => {
           if (!fen) return '';
           const enc = encodeURIComponent(fen);
           return (
             '<span class="suite-move-links" style="margin-left:auto;display:inline-flex;gap:4px;align-items:center;">' +
-              '<a style="' + suiteLinkStyle + '" target="yourlines-lines" href="/?fen=' + enc + '" title="How do your games handle this position? (opens Lines in its own tab)">Lines</a>' +
-              '<a style="' + suiteLinkStyle + '" target="yourlines-play" href="/play/?fen=' + enc + '" title="Open this position on the analysis board (opens Play in its own tab)">Play</a>' +
-              '<a style="' + suiteLinkStyle + '" target="yourlines-gym" href="/gym/?lookup=' + enc + '" title="Find trainer lines through this position (opens Gym in its own tab)">Gym</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-lines" href="' + SUITE_BASE + '?fen=' + enc + '" title="How do your games handle this position? (opens Lines in its own tab)">Lines</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-play" href="' + SUITE_BASE + 'play/?fen=' + enc + '" title="Open this position on the analysis board (opens Play in its own tab)">Play</a>' +
+              '<a style="' + suiteLinkStyle + '" target="yourlines-gym" href="' + SUITE_BASE + 'gym/?lookup=' + enc + '" title="Find trainer lines through this position (opens Gym in its own tab)">Gym</a>' +
             '</span>'
           );
         };

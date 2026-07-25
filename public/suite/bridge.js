@@ -15,6 +15,19 @@
 (function () {
   'use strict';
 
+  // This script is always loaded from '<suiteBase>suite/bridge.js', so its
+  // own src tells us the suite's root — '/' locally, '/yourlines/' on GitHub
+  // Pages (or whatever else it's hosted under later) — with no build step
+  // or hardcoding involved.
+  var SUITE_BASE = (function () {
+    try {
+      var src = document.currentScript && document.currentScript.src;
+      var m = src && src.match(/^(.*\/)suite\/[^/]*$/);
+      if (m) return new URL(m[1], location.href).pathname;
+    } catch (e) {}
+    return '/';
+  })();
+
   // ── IndexedDB access (read-only, tolerant of the db not existing yet) ──
   function openDb() {
     return new Promise(function (resolve) {
@@ -175,7 +188,12 @@
     }
   }
 
-  var path = location.pathname;
+  // Path relative to the suite root (no leading slash), so the checks below
+  // work whether we're served at '/' or a sub-path like '/yourlines/'.
+  var path =
+    location.pathname.indexOf(SUITE_BASE) === 0
+      ? location.pathname.slice(SUITE_BASE.length)
+      : location.pathname.replace(/^\//, '');
 
   // ── /review/ integration ─────────────────────────────────────────────
   function isVisible(el) {
@@ -262,7 +280,7 @@
         });
         if (!sorted.length) {
           list.innerHTML =
-            '<p style="padding:16px;text-align:center;color:#6b7290;">No games cached. Import in <a href="/" style="color:#f2b544;">Lines</a> first.</p>';
+            '<p style="padding:16px;text-align:center;color:#6b7290;">No games cached. Import in <a href="' + SUITE_BASE + '" style="color:#f2b544;">Lines</a> first.</p>';
           return;
         }
         sorted.slice(0, 100).forEach(function (g) {
@@ -297,7 +315,7 @@
           if (g.url && reviewed[g.url]) {
             row.querySelector('[data-archive-id]').addEventListener('click', function (ev) {
               ev.stopPropagation();
-              location.href = '/review/?archive=' + encodeURIComponent(reviewed[g.url]);
+              location.href = SUITE_BASE + 'review/?archive=' + encodeURIComponent(reviewed[g.url]);
             });
           }
           row.onclick = function () {
@@ -312,7 +330,7 @@
     listProfiles().then(function (profiles) {
       if (!profiles.length) {
         list.innerHTML =
-          '<p style="padding:16px;text-align:center;color:#6b7290;">No accounts yet. Import your games in <a href="/" style="color:#f2b544;">Lines</a> first.</p>';
+          '<p style="padding:16px;text-align:center;color:#6b7290;">No accounts yet. Import your games in <a href="' + SUITE_BASE + '" style="color:#f2b544;">Lines</a> first.</p>';
         return;
       }
       profiles.forEach(function (p) {
@@ -405,7 +423,7 @@
   }
 
   onReady(function () {
-    if (path.indexOf('/review/') === 0) initReview();
-    else if (path.indexOf('/gym/') === 0) initGym();
+    if (path.indexOf('review/') === 0) initReview();
+    else if (path.indexOf('gym/') === 0) initGym();
   });
 })();

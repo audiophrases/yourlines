@@ -41,6 +41,10 @@ const MIME: Record<string, string> = {
 
 function suiteApps(): Plugin {
   const publicDir = resolve(process.cwd(), 'public')
+  // Populated via configResolved so this middleware works whether Vite is
+  // serving from the origin root (dev) or a sub-path like /yourlines/
+  // (preview of the production build, matching GitHub Pages).
+  let base = '/'
   const handler = async (
     req: { url?: string },
     res: {
@@ -50,11 +54,15 @@ function suiteApps(): Plugin {
     },
     next: () => void,
   ) => {
-    const url = (req.url ?? '').split('?')[0]
+    let url = (req.url ?? '').split('?')[0]
+    if (base !== '/') {
+      if (!url.startsWith(base)) return next()
+      url = '/' + url.slice(base.length)
+    }
     for (const app of SUITE_APPS) {
       if (url === `/${app}`) {
         res.statusCode = 302
-        res.setHeader('Location', `/${app}/`)
+        res.setHeader('Location', `${base}${app}/`)
         res.end()
         return
       }
@@ -83,6 +91,9 @@ function suiteApps(): Plugin {
   }
   return {
     name: 'suite-apps',
+    configResolved(config) {
+      base = config.base
+    },
     configureServer(server) {
       server.middlewares.use(handler)
     },
@@ -93,6 +104,14 @@ function suiteApps(): Plugin {
 }
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command, isPreview }) => ({
+  // GitHub Pages serves this project from /yourlines/ (a project page, not a
+  // user/org root site or custom domain), so the production build — and
+  // `vite preview`, which serves that same build — need asset and sub-app
+  // URLs prefixed accordingly. `vite preview` reports command:'serve' (same
+  // as dev), so `isPreview` is what actually distinguishes it from dev.
+  // Dev itself stays at the origin root so local usage (incl. the suite
+  // .bat launchers) is unaffected.
+  base: command === 'build' || isPreview ? '/yourlines/' : '/',
   plugins: [react(), tailwindcss(), suiteApps()],
-})
+}))

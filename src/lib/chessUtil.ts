@@ -72,14 +72,18 @@ function openSuiteTab(url: string, appId: 'play' | 'gym' | 'review'): void {
   else window.location.href = url; // popup blocked — fall back to same-tab nav
 }
 
+// BASE_URL is '/' in dev and '/yourlines/' in the production build (see
+// vite.config.ts), so these links work under a GitHub Pages sub-path too.
+const base = import.meta.env.BASE_URL;
+
 /** Open the Gym app with a line queued for lookup/training. */
 export function handoffToGym(line: string[]): void {
-  openSuiteTab(`/gym/?lookup=${encodeURIComponent(line.join(' '))}`, 'gym');
+  openSuiteTab(`${base}gym/?lookup=${encodeURIComponent(line.join(' '))}`, 'gym');
 }
 
 /** Open a full game on the analysis board (/play/), landing on the final position. */
 export function handoffToPlay(game: Game, username: string): void {
-  openSuiteTab(`/play/?pgn=${encodeURIComponent(gameToPgn(game, username))}`, 'play');
+  openSuiteTab(`${base}play/?pgn=${encodeURIComponent(gameToPgn(game, username))}`, 'play');
 }
 
 /** Hand a game off to the Reviewer app (/review/) in its own tab. */
@@ -92,5 +96,5 @@ export function handoffToReview(game: Game, username: string): void {
   } catch {
     /* storage unavailable — the navigation still lands on /review/ */
   }
-  openSuiteTab('/review/', 'review');
+  openSuiteTab(`${base}review/`, 'review');
 }

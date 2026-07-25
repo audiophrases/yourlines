@@ -5,20 +5,34 @@
   'use strict';
   if (document.getElementById('yl-suite-nav')) return;
 
+  // This script is always loaded from '<suiteBase>suite/nav.js', so its own
+  // src tells us the suite's root — '/' locally, '/yourlines/' on GitHub
+  // Pages (or whatever else it's hosted under later) — with no build step
+  // or hardcoding involved.
+  var SUITE_BASE = (function () {
+    try {
+      var src = document.currentScript && document.currentScript.src;
+      var m = src && src.match(/^(.*\/)suite\/[^/]*$/);
+      if (m) return new URL(m[1], location.href).pathname;
+    } catch (e) {}
+    return '/';
+  })();
+
   var APPS = [
-    { id: 'lines', label: 'Lines', href: '/', icon: '♞' },
-    { id: 'play', label: 'Play', href: '/play/', icon: '⚔' },
-    { id: 'gym', label: 'Gym', href: '/gym/', icon: '🏋' },
-    { id: 'review', label: 'Review', href: '/review/', icon: '🔎' },
-    { id: 'puzzles', label: 'Puzzles', href: '/puzzles/', icon: '🧩' },
+    { id: 'lines', label: 'Lines', href: SUITE_BASE, icon: '♞' },
+    { id: 'play', label: 'Play', href: SUITE_BASE + 'play/', icon: '⚔' },
+    { id: 'gym', label: 'Gym', href: SUITE_BASE + 'gym/', icon: '🏋' },
+    { id: 'review', label: 'Review', href: SUITE_BASE + 'review/', icon: '🔎' },
+    { id: 'puzzles', label: 'Puzzles', href: SUITE_BASE + 'puzzles/', icon: '🧩' },
   ];
 
   function currentApp() {
     var p = location.pathname;
-    if (p.indexOf('/play/') === 0) return 'play';
-    if (p.indexOf('/gym/') === 0) return 'gym';
-    if (p.indexOf('/review/') === 0) return 'review';
-    if (p.indexOf('/puzzles/') === 0) return 'puzzles';
+    var rel = p.indexOf(SUITE_BASE) === 0 ? p.slice(SUITE_BASE.length) : p.replace(/^\//, '');
+    if (rel.indexOf('play/') === 0) return 'play';
+    if (rel.indexOf('gym/') === 0) return 'gym';
+    if (rel.indexOf('review/') === 0) return 'review';
+    if (rel.indexOf('puzzles/') === 0) return 'puzzles';
     return 'lines';
   }
 
@@ -54,14 +68,14 @@
       var fen = ctx.fen && ctx.fen.trim() ? ctx.fen.trim() : '';
       if (fen.indexOf(START_FEN_PREFIX) === 0) fen = '';
       if (app.id === 'play') {
-        if (pgn) return '/play/?pgn=' + encodeURIComponent(pgn);
-        if (fen) return '/play/?fen=' + encodeURIComponent(fen);
+        if (pgn) return SUITE_BASE + 'play/?pgn=' + encodeURIComponent(pgn);
+        if (fen) return SUITE_BASE + 'play/?fen=' + encodeURIComponent(fen);
       } else if (app.id === 'lines') {
-        if (pgn) return '/?pgn=' + encodeURIComponent(pgn);
-        if (fen) return '/?fen=' + encodeURIComponent(fen);
+        if (pgn) return SUITE_BASE + '?pgn=' + encodeURIComponent(pgn);
+        if (fen) return SUITE_BASE + '?fen=' + encodeURIComponent(fen);
       } else if (app.id === 'gym') {
         var q = pgn || fen;
-        if (q) return '/gym/?lookup=' + encodeURIComponent(q);
+        if (q) return SUITE_BASE + 'gym/?lookup=' + encodeURIComponent(q);
       }
     } catch (e) {}
     return app.href;

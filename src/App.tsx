@@ -123,20 +123,25 @@ const START_FEN_PREFIX = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
 function SuiteNav() {
   const path = useStore((s) => s.path);
   const fen = useStore((s) => s.fen);
+  // BASE_URL is '/' in dev and '/yourlines/' in the production build (see
+  // vite.config.ts), so these links work under a GitHub Pages sub-path too.
+  const base = import.meta.env.BASE_URL;
 
   const playHref = path.length
-    ? `/play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
+    ? `${base}play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
     : fen && !fen.startsWith(START_FEN_PREFIX)
-      ? `/play/?fen=${encodeURIComponent(fen)}`
-      : '/play/';
-  const gymHref = path.length ? `/gym/?lookup=${encodeURIComponent(path.join(' '))}` : '/gym/';
+      ? `${base}play/?fen=${encodeURIComponent(fen)}`
+      : `${base}play/`;
+  const gymHref = path.length
+    ? `${base}gym/?lookup=${encodeURIComponent(path.join(' '))}`
+    : `${base}gym/`;
 
   const apps = [
-    { label: 'Lines', href: '/', active: true, title: undefined as string | undefined },
+    { label: 'Lines', href: base, active: true, title: undefined as string | undefined },
     { label: 'Play', href: playHref, title: 'Open the analysis board with the current position' },
     { label: 'Gym', href: gymHref, title: 'Find trainer lines matching the current position' },
-    { label: 'Review', href: '/review/', title: undefined as string | undefined },
-    { label: 'Puzzles', href: '/puzzles/', title: 'Play puzzles from your own lost games' },
+    { label: 'Review', href: `${base}review/`, title: undefined as string | undefined },
+    { label: 'Puzzles', href: `${base}puzzles/`, title: 'Play puzzles from your own lost games' },
   ];
   return (
     <nav className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-850 p-0.5">
