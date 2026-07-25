@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "sync-apps": "node scripts/sync-apps.mjs"
+    "sync-apps": "node scripts/sync-apps.mjs",
+    "deploy": "node scripts/deploy.mjs"
   },
   "dependencies": {
     "chess.js": "^1.4.0",

@@ -1,15 +1,19 @@
 // Syncs the sibling chess apps into this repo so the whole suite is served
 // from one origin (shared IndexedDB/localStorage, unified nav):
 //
-//   C:/Users/Admin/stockfish          -> public/play/    (Chess Interface)
-//   C:/Users/Admin/ChessGym           -> public/gym/     (ChessGym trainer)
-//   C:/Users/Admin/ChessMoveReviewer  -> public/review/  (Chess Reviewer)
+//   C:/Users/Admin/stockfish          -> public/play/     (Chess Interface)
+//   C:/Users/Admin/ChessGym           -> public/gym/      (ChessGym trainer)
+//   C:/Users/Admin/ChessMoveReviewer  -> public/review/   (Chess Reviewer)
+//   C:/Users/Admin/yourchesspuzzles   -> public/puzzles/  (Your Chess Puzzles)
 //
 // Each app keeps its own repo; run `npm run sync-apps` after changing them,
-// then commit here. The copied index.html gets the suite nav injected.
+// then commit here (or use that app's own deploy.bat, which does both). The
+// copied index.html gets the suite nav injected. App registry lives in
+// suite-apps.mjs, shared with deploy.mjs.
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, resolve, basename } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { suiteApps } from './suite-apps.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..');
@@ -18,59 +22,7 @@ const siblings = resolve(repoRoot, '..');
 const SUITE_TAGS =
   '<script src="../suite/nav.js" defer></script>\n  <script src="../suite/bridge.js" defer></script>';
 
-/** Per-app sync config. `include` entries are files or directories. */
-const APPS = [
-  {
-    name: 'play',
-    title: 'Chess Interface',
-    src: join(siblings, 'stockfish'),
-    include: [
-      'index.html',
-      'libs',
-      'pieces',
-      'sounds',
-      // Only the engine builds index.html actually references (~15 MB).
-      'stockfish-nnue-16-single.js',
-      'stockfish-nnue-16-single.wasm',
-      'stockfish-17-lite-single.js',
-      'stockfish-17-lite-single.wasm',
-      'stockfish-16.1-lite-single.js',
-      'stockfish-16.1-lite-single.wasm',
-    ],
-  },
-  {
-    name: 'gym',
-    title: 'ChessGym',
-    src: join(siblings, 'ChessGym'),
-    include: [
-      'index.html',
-      'app.js',
-      'style.css',
-      'favicon.ico',
-      'favicon.png',
-      'data',
-      'engine',
-      'libs',
-      'pieces',
-      'sounds',
-      'Thumbnails',
-    ],
-    // Dev-side leftovers inside included dirs.
-    skip: (p) => /\.bak\d*$/.test(p) || basename(p) === '__pycache__',
-  },
-  {
-    name: 'review',
-    title: 'Chess Reviewer',
-    src: join(siblings, 'ChessMoveReviewer'),
-    include: ['index.html', 'favicon.svg', 'engine', 'sounds'],
-  },
-  {
-    name: 'puzzles',
-    title: 'Your Chess Puzzles',
-    src: join(siblings, 'yourchesspuzzles'),
-    include: ['index.html', 'libs', 'pieces', 'sounds', 'engine'],
-  },
-];
+const APPS = suiteApps(siblings);
 
 let totalBytes = 0;
 let totalFiles = 0;
