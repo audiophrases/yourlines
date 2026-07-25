@@ -115,6 +115,8 @@
           <span id="solvedCount" class="chip"></span>
         </div>
         <div class="row">
+          <button id="refreshBtn" class="btn" title="Check for games played since you started">↻ New games</button>
+          <button id="latestBtn" class="btn" title="Jump to your most recent loss">⏱ Latest loss</button>
           <button id="prevBtn" class="btn" title="Previous puzzle">‹ Prev</button>
           <button id="nextBtn" class="btn" title="Next puzzle">Next ›</button>
         </div>
@@ -146,7 +148,13 @@
             </div>
           </div>
           <div class="card" style="margin-top:14px">
-            <div class="muted" style="font-size:12px; margin-bottom:6px">Your puzzles — biggest mistakes first</div>
+            <div class="row" style="justify-content:space-between; margin-bottom:8px">
+              <div class="muted" style="font-size:12px">Your puzzles</div>
+              <div class="seg" id="sortSeg">
+                <button type="button" data-sort="loss">Worst blunder</button>
+                <button type="button" data-sort="recent">Most recent</button>
+              </div>
+            </div>
             <div id="puzList" class="list"></div>
           </div>
         </div>
@@ -170,6 +178,8 @@
     var MATE = 100000;
     var CACHE_KEY = 'ycp.puzzles.v1';
     var USER_KEY = 'ycp.lastuser.v1';
+    var SORT_KEY = 'ycp.sort.v1';
+    var REFRESH_KEY = 'ycp.lastrefresh.v1';
     // Derived from our own path (…/puzzles/…) so suite links work whether
     // this is served from the origin root or a sub-path like /yourlines/
     // (GitHub Pages project site).
@@ -254,6 +264,24 @@
       if (isMate(before) && before > 0 && !isMate(after)) return 'throws away a forced mate';
       return 'drops ~' + ((before - after) / 100).toFixed(1) + ' pawns';
     }
+    // Human-readable "how long ago" for a puzzle list row.
+    function relTime(iso) {
+      if (!iso) return '';
+      var t = Date.parse(iso);
+      if (!isFinite(t)) return '';
+      var diff = Math.max(0, Date.now() - t);
+      var min = Math.floor(diff / 60000);
+      if (min < 1) return 'just now';
+      if (min < 60) return min + ' min ago';
+      var hr = Math.floor(min / 60);
+      if (hr < 24) return hr + ' h ago';
+      var day = Math.floor(hr / 24);
+      if (day === 1) return 'yesterday';
+      if (day < 7) return day + ' d ago';
+      var d = new Date(t);
+      var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return d.getDate() + ' ' + months[d.getMonth()];
+    }
     function uciToSan(fen, uci) {
       if (!uci) return null;
       var c = new Chess(); c.load(fen);
@@ -262,12 +290,17 @@
     }
 
     // ---- game sourcing ----
-    var state = { source: null, site: 'chesscom', username: '', lostGames: [], puzzles: [], idx: 0, board: null };
+    var state = {
+      source: null, site: 'chesscom', username: '', lostGames: [], puzzles: [], idx: 0, board: null,
+      sort: loadSort(), newestAt: null, refreshPromise: null
+    };
 
     function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
     function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
     function loadLastUser() { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; } }
     function saveLastUser() { try { localStorage.setItem(USER_KEY, JSON.stringify({ site: state.site, username: state.username })); } catch (e) {} }
+    function loadSort() { try { return localStorage.getItem(SORT_KEY) || 'loss'; } catch (e) { return 'loss'; } }
+    function saveSort(s) { try { localStorage.setItem(SORT_KEY, s); } catch (e) {} }
     // persist solved state so a reload knows which puzzles are still open
     function markSolvedInCache(p) {
       var cache = loadCache();
@@ -309,6 +342,7 @@
           if (p && p.games && p.games.length) {
             state.source = 'suite'; state.site = p.site; state.username = p.username;
             state.lostGames = p.games.filter(function (g) { return g.result === 'loss'; });
+            state.newestAt = typeof p.newestAt === 'number' ? p.newestAt : null;
             return;
           }
         } catch (e) {}
@@ -316,12 +350,15 @@
       state.source = 'manual';
     }
 
-    async function fetchGames(site, username) {
+    async function fetchGames(site, username, opts) {
+      opts = opts || {};
       username = (username || '').trim();
       if (!username) throw new Error('Enter a username first.');
       if (site === 'lichess') {
-        var res = await fetch('https://lichess.org/api/games/user/' + encodeURIComponent(username) +
-          '?max=60&moves=true&pgnInJson=false&rated=true', { headers: { Accept: 'application/x-ndjson' } });
+        var url = 'https://lichess.org/api/games/user/' + encodeURIComponent(username) +
+          '?max=' + (opts.max || 60) + '&moves=true&pgnInJson=false';
+        if (opts.since) url += '&since=' + opts.since;
+        var res = await fetch(url, { headers: { Accept: 'application/x-ndjson' } });
         if (res.status === 404) throw new Error('Lichess user "' + username + '" not found.');
         if (!res.ok) throw new Error('Lichess API error.');
         var text = await res.text();
@@ -345,16 +382,27 @@
       if (!arch.ok) throw new Error('Chess.com API error.');
       var archives = (await arch.json()).archives || [];
       var games = [];
-      var months = archives.slice(-3).reverse();
-      for (var i = 0; i < months.length; i++) {
-        var r = await fetch(months[i]); if (!r.ok) continue;
-        var j = await r.json(); games = games.concat(j.games || []);
-        if (games.length > 80) break;
+      if (opts.since) {
+        // Incremental check: a game finished seconds ago is always in the
+        // current month's archive, so skip the older-months sweep entirely.
+        var latest = archives[archives.length - 1];
+        if (latest) {
+          var rNew = await fetch(latest);
+          if (rNew.ok) { var jNew = await rNew.json(); games = jNew.games || []; }
+        }
+      } else {
+        var months = archives.slice(-3).reverse();
+        for (var i = 0; i < months.length; i++) {
+          var r = await fetch(months[i]); if (!r.ok) continue;
+          var j = await r.json(); games = games.concat(j.games || []);
+          if (games.length > 80) break;
+        }
       }
       var lc = username.toLowerCase();
       var draws = ['agreed', 'repetition', 'stalemate', 'insufficient', '50move', 'timevsinsufficient'];
       return games.map(function (g) {
         if ((g.rules && g.rules !== 'chess') || !g.pgn) return null;
+        if (opts.since && (g.end_time || 0) * 1000 <= opts.since) return null;
         var color = (g.white && g.white.username || '').toLowerCase() === lc ? 'white' : 'black';
         var myres = color === 'white' ? (g.white && g.white.result) : (g.black && g.black.result);
         var result = myres === 'win' ? 'win' : (draws.indexOf(myres) >= 0 ? 'draw' : 'loss');
@@ -365,6 +413,45 @@
           date: g.end_time ? new Date(g.end_time * 1000).toISOString() : null, opponent: opp || '?', url: g.url,
           timeClass: g.time_class, whiteRating: g.white && g.white.rating, blackRating: g.black && g.black.rating };
       }).filter(Boolean);
+    }
+
+    // ---- fresh-games refresh: fill the gap where a game finished seconds
+    // ago wouldn't otherwise appear (suite mode reads a snapshot once at
+    // load; manual mode's own initial build already re-fetches in full) ----
+    function mergeNewGames(fresh) {
+      if (!fresh || !fresh.length) return 0;
+      var seen = {};
+      state.lostGames.forEach(function (g) { seen[g.id] = true; });
+      var added = 0;
+      fresh.forEach(function (g) {
+        if (g.result === 'loss' && !seen[g.id]) { state.lostGames.push(g); seen[g.id] = true; added++; }
+      });
+      return added;
+    }
+    function refreshCursor() {
+      if (state.newestAt) return state.newestAt;
+      var maxDate = '';
+      state.lostGames.forEach(function (g) { if (g.date && g.date > maxDate) maxDate = g.date; });
+      return maxDate ? Date.parse(maxDate) : null;
+    }
+    // `force` bypasses the throttle for an explicit user click; the
+    // automatic on-load check always respects it so a burst of reloads
+    // can't hammer the chess.com/lichess APIs.
+    async function refreshNewGames(force) {
+      if (!state.username) return 0;
+      try {
+        if (!force) {
+          var last = 0;
+          try { last = parseInt(localStorage.getItem(REFRESH_KEY) || '0', 10) || 0; } catch (e) {}
+          if (Date.now() - last < 30000) return 0;
+        }
+        try { localStorage.setItem(REFRESH_KEY, String(Date.now())); } catch (e) {}
+        var since = refreshCursor();
+        var fresh = await fetchGames(state.site, state.username, { since: since || undefined, max: 15 });
+        return mergeNewGames(fresh);
+      } catch (e) {
+        return 0; // silent — cached puzzles must still work if this fails
+      }
     }
 
     // ---- puzzle generation: the worst eval-drop move in a lost game ----
@@ -408,10 +495,29 @@
       };
     }
 
-    async function runBuild(auto) {
+    // Reentrancy guard: the manual "Check for new games" flow can call this
+    // while an auto-triggered build from page load is still running (e.g.
+    // scanning later games in the background) — share the in-flight build
+    // instead of starting a conflicting second one.
+    var buildPromise = null;
+    function setBuilding(b) {
+      $id('buildBtn').disabled = b;
+      if ($id('refreshBtn')) $id('refreshBtn').disabled = b;
+    }
+    function runBuild(auto) {
+      if (buildPromise) return buildPromise;
+      buildPromise = doBuild(auto).finally(function () { buildPromise = null; });
+      return buildPromise;
+    }
+
+    async function doBuild(auto) {
       var autoJump = auto === true;   // page-load flow: jump straight into the newest unsolved puzzle
       if (!engine.available) { setSetupError('This browser blocked the chess engine (WebAssembly worker).'); return; }
-      $id('buildBtn').disabled = true;
+      setBuilding(true);
+      // If a background freshness check is in flight (kicked off at page
+      // load in suite mode — see init()), wait for it so a just-finished
+      // game is included in this very scan rather than the next one.
+      if (state.refreshPromise) { try { await state.refreshPromise; } catch (e) {} state.refreshPromise = null; }
       if (state.source === 'manual') {
         try {
           var input = $id('userInput'); state.username = input ? input.value.trim() : '';
@@ -419,8 +525,8 @@
           var all = await fetchGames(state.site, state.username);
           state.lostGames = all.filter(function (g) { return g.result === 'loss'; });
           saveLastUser();
-          if (!state.lostGames.length) { setSetupError('No recent lost games found for that account.'); $id('buildBtn').disabled = false; return; }
-        } catch (e) { setSetupError(e.message || 'Could not fetch games.'); $id('buildBtn').disabled = false; return; }
+          if (!state.lostGames.length) { setSetupError('No recent lost games found for that account.'); setBuilding(false); return; }
+        } catch (e) { setSetupError(e.message || 'Could not fetch games.'); setBuilding(false); return; }
       }
       $id('buildProgress').classList.remove('hide');
       await engine.ready();
@@ -462,14 +568,26 @@
           } else refreshPlayerChrome();
         }
       }
-      var shownP = $id('player').classList.contains('hide') ? null : curPuzzle();
-      state.puzzles.sort(function (a, b) { return b.loss - a.loss; });
-      if (shownP) { var si = state.puzzles.indexOf(shownP); if (si >= 0) state.idx = si; }
+      applySort();
       refreshPlayerChrome();
       setProgress('Done — found ' + state.puzzles.length + ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' from ' + games.length + ' losses.', 100);
-      $id('buildBtn').disabled = false;
+      setBuilding(false);
       if (state.puzzles.length) $id('startSolvingBtn').classList.remove('hide');
       else setSetupError('No clear one-move blunders found in those games. Try scanning more (?maxgames=20) or a deeper look (?depth=14).');
+    }
+
+    // Sort order for the puzzle list — 'loss' (worst blunder first, default)
+    // or 'recent' (newest game first). Preserves whichever puzzle is
+    // currently shown across a re-sort by remapping its index by identity,
+    // the same pattern the original build-time sort used.
+    function applySort() {
+      var shownP = $id('player').classList.contains('hide') ? null : curPuzzle();
+      if (state.sort === 'recent') {
+        state.puzzles.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+      } else {
+        state.puzzles.sort(function (a, b) { return b.loss - a.loss; });
+      }
+      if (shownP) { var si = state.puzzles.indexOf(shownP); if (si >= 0) state.idx = si; }
     }
 
     function setProgress(text, pct) {
@@ -642,10 +760,71 @@
         row.innerHTML =
           '<span class="dot' + (p.solved ? ' solved' : '') + '"></span>' +
           '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">vs ' + escapeHtml(p.opponent || '?') + '</span>' +
-          '<span class="muted" style="font-size:12px">' + (isMate(p.playedAfterCp) ? 'mate' : '−' + (p.loss / 100).toFixed(1)) + '</span>';
+          '<span class="muted" style="font-size:11px;flex:none">' + escapeHtml(relTime(p.date)) + '</span>' +
+          '<span class="muted" style="font-size:12px;flex:none">' + (isMate(p.playedAfterCp) ? 'mate' : '−' + (p.loss / 100).toFixed(1)) + '</span>';
         row.onclick = function () { state.idx = i; showPuzzle(); };
         el.appendChild(row);
       });
+      updateLatestBtn();
+    }
+
+    // Jump straight to the newest-dated puzzle regardless of the active
+    // sort — the newest *loss* may have no puzzle at all (no qualifying
+    // blunder), so this targets the newest puzzle that actually exists.
+    function goLatest() {
+      if (!state.puzzles.length) return;
+      var bestI = -1, bestDate = '';
+      state.puzzles.forEach(function (p, i) {
+        var d = p.date || '';
+        if (d && d > bestDate) { bestDate = d; bestI = i; }
+      });
+      if (bestI >= 0) { state.idx = bestI; showPuzzle(); }
+    }
+    function updateLatestBtn() {
+      var btn = $id('latestBtn'); if (!btn) return;
+      btn.disabled = !state.puzzles.some(function (p) { return !!p.date; });
+    }
+
+    // Manual "check for new games" — merges anything newer into
+    // state.lostGames, rebuilds (cached games are instant, only genuinely
+    // new ones cost engine time), then jumps to the newest puzzle. This is
+    // the button path; the automatic on-load check in init() covers the
+    // "just opened the app" moment on its own.
+    async function checkForNewGames() {
+      var btn = $id('refreshBtn'); if (!btn) return;
+      var label = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Checking…';
+      var added = 0;
+      try { added = await refreshNewGames(true); } catch (e) {}
+      btn.disabled = false; btn.textContent = label;
+      if (added > 0) {
+        await runBuild(false);
+        goLatest();
+      } else if (solveState !== 'solved') {
+        setStatus('No new games since your last check.', '');
+      }
+    }
+
+    function initSortSeg() {
+      var el = $id('sortSeg');
+      if (!el) return;
+      function render() {
+        el.querySelectorAll('button').forEach(function (b) {
+          b.classList.toggle('on', b.getAttribute('data-sort') === state.sort);
+        });
+      }
+      el.querySelectorAll('button').forEach(function (b) {
+        b.onclick = function () {
+          var s = b.getAttribute('data-sort');
+          if (state.sort === s) return;
+          state.sort = s;
+          saveSort(s);
+          render();
+          applySort();
+          refreshPlayerChrome();
+        };
+      });
+      render();
     }
 
     // expose current puzzle position to the suite nav (carry board across apps)
@@ -665,9 +844,12 @@
     $id('startSolvingBtn').onclick = function () { state.idx = 0; showPuzzle(); };
     $id('prevBtn').onclick = function () { go(-1); };
     $id('nextBtn').onclick = function () { go(1); };
+    $id('latestBtn').onclick = goLatest;
+    $id('refreshBtn').onclick = checkForNewGames;
     $id('revealBtn').onclick = reveal;
     $id('retryBtn').onclick = retry;
     $id('backSetup').onclick = function () { $id('player').classList.add('hide'); $id('setup').classList.remove('hide'); };
+    initSortSeg();
 
     // The suite bridge (window.YourlinesSuite) loads via a deferred script, so
     // wait for DOMContentLoaded before detecting the source.
@@ -677,7 +859,19 @@
       detectSource().then(function () {
         renderSource();
         var last = loadLastUser();
-        if (state.source === 'suite' || (state.source === 'manual' && last && last.username)) runBuild(true);
+        if (state.source === 'suite') {
+          // Suite mode reads Lines' cache once and has no other way to learn
+          // about a game finished after that — check for anything newer in
+          // the background; doBuild() awaits this before it reads
+          // state.lostGames, so a just-finished loss is still included in
+          // the very first scan.
+          state.refreshPromise = refreshNewGames();
+          runBuild(true);
+        } else if (state.source === 'manual' && last && last.username) {
+          // Manual mode's own build always re-fetches in full, so it has no
+          // freshness gap to fix here.
+          runBuild(true);
+        }
       });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
