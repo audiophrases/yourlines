@@ -152,6 +152,14 @@
   <!-- Header (hidden on final screen) -->
   <header id="app-header" class="text-center mb-4">
     <h1 class="text-2xl sm:text-3xl font-bold text-white">Chess Reviewer</h1>
+    <div class="flex items-center justify-center gap-2 mt-2">
+      <span id="who" class="hidden text-xs text-gray-400 truncate max-w-[18ch]"></span>
+      <!-- enabled by sync.js once Firebase is up; if it never loads the
+           button stays visibly out of action rather than doing nothing -->
+      <button id="signin" type="button" disabled
+              class="py-1 px-3 text-xs font-semibold rounded-md btn-secondary disabled:opacity-50"
+              title="Google sign-in — your saved reviews follow you to any device">Sign in</button>
+    </div>
   </header>
 
   <!-- Step Indicators -->
@@ -581,6 +589,13 @@
       const ARCHIVE_STORAGE_KEY = 'cmr.reviewArchive.v1';
       const ARCHIVE_MAX_ENTRIES = 25;
       let archiveEntries = [];
+      /* Cloud sync state — the block under persistArchiveEntries() explains
+         the merge, and sync.js owns the Firestore end. Declared here, beside
+         the archive they mirror, so persistArchiveEntries() can reach them
+         however early it first runs. */
+      let reviewCloudPush = null;
+      let reviewPushTimer = null;
+      let reviewMerging = false;
       let storageAvailable = isLocalStorageAvailable();
       let sessionStorageAvailable = isSessionStorageAvailable();
       if (storageAvailable) {
@@ -3733,12 +3748,128 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             updatedAt: entry.updatedAt || entry.createdAt || Date.now()
           })) : [];
           window.localStorage.setItem(ARCHIVE_STORAGE_KEY, JSON.stringify(payload));
+          reviewSchedulePush();
           return true;
         } catch (err) {
           console.warn('Failed to persist saved reviews:', err);
           return false;
         }
       }
+
+      /* ============================================================
+         Cloud sync — your saved reviews follow you.
+
+         Every entry here cost minutes of Stockfish time to produce, which
+         is what makes the archive worth carrying between devices: the
+         games are public and the engine is deterministic, but nobody
+         wants to sit through the analysis twice. sync.js signs you in and
+         owns the Firestore end; this block owns the merge.
+         ============================================================ */
+
+      /* stockfishOutput is deliberately left on the machine that made it.
+         It is the raw engine log — by far the largest field, and on
+         restore it only refills a detail textarea, which loadArchiveEntryById
+         already treats as optional. Twenty-five of them would be the one
+         thing here capable of pushing the document past Firestore's 1 MiB
+         ceiling, and an oversized write is refused silently. */
+      function reviewCloudEntry(entry) {
+        const slim = { ...entry };
+        delete slim.stockfishOutput;
+        return slim;
+      }
+
+      /* Firestore map keys are field names, so ids get scrubbed the way the
+         other suite apps scrub theirs; the real id rides inside the entry. */
+      function reviewCloudKey(id) {
+        return String(id).replace(/[^A-Za-z0-9_-]/g, '_');
+      }
+
+      /* Newest first, and stop before the document could ever be refused:
+         a spent budget drops the oldest reviews rather than the write. */
+      const REVIEW_CLOUD_BUDGET = 700000;
+      function reviewCloudPayload() {
+        const entries = {};
+        let used = 0;
+        const ordered = [...archiveEntries].sort(
+          (a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)
+        );
+        for (const entry of ordered) {
+          if (!entry || !entry.id) continue;
+          const j = JSON.stringify(reviewCloudEntry(entry));
+          if (used + j.length > REVIEW_CLOUD_BUDGET) break;
+          used += j.length;
+          entries[reviewCloudKey(entry.id)] = { id: entry.id, j };
+        }
+        return { entries, at: Date.now() };
+      }
+
+      function reviewSchedulePush() {
+        if (!reviewCloudPush || reviewPushTimer || reviewMerging) return;
+        reviewPushTimer = setTimeout(() => {
+          reviewPushTimer = null;
+          if (reviewCloudPush) reviewCloudPush(reviewCloudPayload());
+        }, 700);
+      }
+
+      /* A review is a finished thing: it is written once and not edited, so
+         two devices never hold competing versions of the same entry the way
+         a practice schedule does. The merge is therefore a union by id —
+         whichever copy was updated last wins a tie — re-sorted newest first
+         and cut to the same limit the app keeps locally.
+
+         Because it only ever adds, deleting a review on one device does not
+         delete it on the others; it comes back on the next merge. That is
+         the deliberate trade for never losing an analysis to a race. */
+      function reviewMergeCloud(remote) {
+        if (!remote || !remote.entries) return;
+        const byId = new Map();
+        archiveEntries.forEach(e => { if (e && e.id) byId.set(e.id, e); });
+
+        let changed = false;
+        Object.keys(remote.entries).forEach(slot => {
+          const ent = remote.entries[slot];
+          if (!ent || !ent.id || !ent.j) return;
+          let parsed;
+          try { parsed = JSON.parse(ent.j); } catch (err) { return; }
+          const incoming = normalizeArchiveEntry(parsed);
+          if (!incoming) return;
+          incoming.id = ent.id;
+          const mine = byId.get(ent.id);
+          if (!mine) { byId.set(ent.id, incoming); changed = true; return; }
+          /* the local copy may still hold a stockfishOutput the cloud never
+             carried — keep it rather than let a merge strip it */
+          if ((incoming.updatedAt || 0) > (mine.updatedAt || 0)) {
+            byId.set(ent.id, { ...incoming, stockfishOutput: mine.stockfishOutput || '' });
+            changed = true;
+          }
+        });
+        if (!changed) return;
+
+        const merged = [...byId.values()]
+          .sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0))
+          .slice(0, ARCHIVE_MAX_ENTRIES);
+
+        /* write the merged archive without it bouncing straight back up;
+           whatever this device knows that the cloud does not went up
+           already, on the one push that signing in triggers */
+        reviewMerging = true;
+        try {
+          archiveEntries = merged;
+          persistArchiveEntries(archiveEntries);
+        } finally {
+          reviewMerging = false;
+        }
+        try {
+          if (archiveModal && archiveModal.length && archiveModal.is(':visible')) renderArchiveList();
+          if (typeof updateArchiveControls === 'function') updateArchiveControls();
+        } catch (err) { /* the list just redraws next time it opens */ }
+      }
+
+      /* What sync.js needs, and nothing else. */
+      window.CmrCloud = {
+        merge: reviewMergeCloud,
+        setPusher(fn) { reviewCloudPush = fn; if (fn) reviewSchedulePush(); }
+      };
 
       function openArchiveModal() {
         if (!archiveModal.length) return;
@@ -7854,5 +7985,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         })();
       });
     </script>
+    <!-- A module, so it runs after the app script above has defined window.CmrCloud. -->
+    <script type="module" src="sync.js"></script>
 </body>
 </html>

@@ -56,7 +56,7 @@ export function suiteApps(siblings) {
       name: 'review',
       title: 'Chess Reviewer',
       src: join(siblings, 'ChessMoveReviewer'),
-      include: ['index.html', 'favicon.svg', 'engine', 'sounds'],
+      include: ['index.html', 'sync.js', 'favicon.svg', 'engine', 'sounds'],
     },
     {
       name: 'puzzles',
