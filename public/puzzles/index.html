@@ -31,6 +31,11 @@
     .title { font-size:16px; font-weight:800; letter-spacing:-.02em; color:var(--mist-100); line-height:1; }
     .title span { color:var(--amber); }
     .subtitle { font-size:11px; text-transform:uppercase; letter-spacing:.18em; color:var(--mist-500); margin-top:3px; }
+    .acct { margin-left:auto; display:flex; align-items:center; gap:8px; }
+    .acct .btn { padding:6px 11px; font-size:13px; white-space:nowrap; }
+    /* on a phone the strapline and the button want the same row; the title
+       alone still says what the app is */
+    @media (max-width:480px){ .subtitle { display:none; } }
     .card { background:rgba(20,23,34,.8); border:1px solid var(--ink-700); border-radius:14px; padding:16px; }
     .muted { color:var(--mist-500); }
     .btn { border:1px solid var(--ink-600); background:var(--ink-800); color:var(--mist-200);
@@ -53,10 +58,21 @@
     @media (max-width:820px){ .grid { grid-template-columns:1fr; } }
     #board { width:100%; border-radius:10px; overflow:hidden; box-shadow:0 18px 50px -20px rgba(0,0,0,.75); }
     .board-wrap { position:relative; }
-    /* move highlight overlay */
+    /* Move highlights. The opponent's last move is a flat wash — background
+       the eye can skip; the current move wears a ring. Ties in specificity go
+       to the later rule, so the wash must come first: on a recapture the same
+       square is both, and the ring is the one worth seeing. */
+    .square-55d63.ycp-prev-from { box-shadow: inset 0 0 0 80px rgba(88,133,246,.22); }
+    .square-55d63.ycp-prev-to   { box-shadow: inset 0 0 0 80px rgba(88,133,246,.38); }
     .square-55d63.ycp-from { box-shadow: inset 0 0 0 4px rgba(242,181,68,.55); }
     .square-55d63.ycp-to { box-shadow: inset 0 0 0 4px rgba(87,201,138,.65); }
     .square-55d63.ycp-bad { box-shadow: inset 0 0 0 4px rgba(242,102,139,.6); }
+    .square-55d63.ycp-sel { box-shadow: inset 0 0 0 4px rgba(79,209,197,.85); }
+    /* Where a tapped piece can go: a dot on an empty square, a ring round a
+       capture. Painted as a background layer so the square keeps its colour. */
+    .square-55d63.ycp-dest { background-image: radial-gradient(circle, rgba(238,241,248,.34) 17%, transparent 18%); }
+    .square-55d63.ycp-dest-cap { background-image: radial-gradient(circle, transparent 60%, rgba(238,241,248,.34) 62%); }
+    #board .piece-417db { cursor:pointer; }
     .pill { display:inline-flex; align-items:center; gap:4px; border-radius:8px; padding:2px 8px; font-size:12px; font-weight:700; }
     .pill.loss { background:rgba(242,102,139,.14); color:var(--rose); }
     .pill.win  { background:rgba(87,201,138,.14); color:var(--emerald); }
@@ -84,6 +100,13 @@
       <div>
         <div class="title">your<span>puzzles</span></div>
         <div class="subtitle">learn from your worst moves</div>
+      </div>
+      <div class="acct">
+        <span id="who" class="chip hide"></span>
+        <!-- enabled by sync.js once Firebase is up; if it never loads, the
+             button stays visibly out of action rather than doing nothing -->
+        <button type="button" id="signin" class="btn" disabled
+                title="Google sign-in — your username, your puzzles and what you have solved follow you to any device">Sign in — sync</button>
       </div>
     </header>
 
@@ -162,6 +185,8 @@
     </section>
   </div>
 
+  <!-- A module, so it runs after the app script below has defined YcpCloud. -->
+  <script type="module" src="sync.js"></script>
   <script src="libs/jquery.min.js"></script>
   <script src="libs/chess.min.js"></script>
   <script src="libs/chessboard-1.0.0.min.js"></script>
@@ -180,12 +205,15 @@
     var USER_KEY = 'ycp.lastuser.v1';
     var SORT_KEY = 'ycp.sort.v1';
     var REFRESH_KEY = 'ycp.lastrefresh.v1';
-    // Derived from our own path (…/puzzles/…) so suite links work whether
-    // this is served from the origin root or a sub-path like /yourlines/
-    // (GitHub Pages project site).
-    var SUITE_BASE = (function () {
+    // Where "Analyse in Play" points. Inside the yourlines suite our own path
+    // (…/puzzles/…) gives away where its sibling lives, so the link stays on
+    // whatever origin the suite was served from — localhost or the project
+    // site. Standing alone on GitHub Pages there is no suite around us, so the
+    // link reaches across to the published one.
+    var PLAY_BASE = (function () {
       var i = location.pathname.indexOf('/puzzles/');
-      return i >= 0 ? location.pathname.slice(0, i + 1) : '/';
+      if (i >= 0) return location.pathname.slice(0, i + 1) + 'play/';
+      return 'https://audiophrases.github.io/yourlines/play/';
     })();
 
     function clampInt(v, lo, hi, dflt) { var n = parseInt(v, 10); if (!isFinite(n)) return dflt; return Math.max(lo, Math.min(hi, n)); }
@@ -298,14 +326,106 @@
     function loadCache() { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || '{}'); } catch (e) { return {}; } }
     function saveCache(c) { try { localStorage.setItem(CACHE_KEY, JSON.stringify(c)); } catch (e) {} }
     function loadLastUser() { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch (e) { return null; } }
-    function saveLastUser() { try { localStorage.setItem(USER_KEY, JSON.stringify({ site: state.site, username: state.username })); } catch (e) {} }
+    function saveLastUser() { try { localStorage.setItem(USER_KEY, JSON.stringify({ site: state.site, username: state.username })); } catch (e) {} schedulePush(); }
     function loadSort() { try { return localStorage.getItem(SORT_KEY) || 'loss'; } catch (e) { return 'loss'; } }
     function saveSort(s) { try { localStorage.setItem(SORT_KEY, s); } catch (e) {} }
     // persist solved state so a reload knows which puzzles are still open
     function markSolvedInCache(p) {
       var cache = loadCache();
       if (cache.byGame && cache.byGame[p.gameId]) { cache.byGame[p.gameId].solved = true; saveCache(cache); }
+      schedulePush();
     }
+
+    /* ---- cloud copy ----
+       sync.js signs you in and carries the bytes; this file owns them. What
+       travels is the whole scan — the account, the puzzles, and which of them
+       you have cracked — so a set built on a desktop, which is where the
+       minutes of Stockfish are affordable, is simply there on a phone.
+
+       Two devices are reconciled by union, never by overwrite. Firestore's
+       merge leaves a field alone when the write omits it, so `solved` is only
+       ever sent as true: a device that has not solved a puzzle says nothing
+       about it rather than saying no, and one machine can never un-solve what
+       another has solved. The same reasoning keeps an empty account name off
+       the wire. Solving is one-way here, so a union is all the arithmetic this
+       needs — no ordering, no clocks, no last-writer-wins. */
+    function cloudKey(gameId) { return String(gameId).replace(/[^A-Za-z0-9_-]/g, '_'); }
+
+    var cloudPush = null, pushTimer = null;
+
+    function cloudPayload() {
+      var cache = loadCache(), src = cache.byGame || {}, byGame = {};
+      Object.keys(src).forEach(function (id) {
+        var p = src[id], ent = { id: id, j: p ? JSON.stringify(p) : null };
+        if (p && p.solved) ent.solved = true;
+        byGame[cloudKey(id)] = ent;
+      });
+      var payload = { depth: cache.depth || GEN_DEPTH, at: Date.now(), byGame: byGame };
+      if (state.username) { payload.site = state.site; payload.username = state.username; }
+      return payload;
+    }
+
+    // A finished build marks a dozen games at once; send one write, not twelve.
+    function schedulePush() {
+      if (!cloudPush || pushTimer) return;
+      pushTimer = setTimeout(function () {
+        pushTimer = null;
+        if (cloudPush) cloudPush(cloudPayload());
+      }, 700);
+    }
+
+    function mergeCloud(remote) {
+      if (!remote) return;
+      var cache = loadCache();
+      if (cache.depth !== GEN_DEPTH) cache = { depth: GEN_DEPTH, byGame: {} };
+      cache.byGame = cache.byGame || {};
+
+      // A scan run at another depth is a different set of puzzles, not a newer
+      // one — take the account off it and leave its positions where they are.
+      if (remote.depth === GEN_DEPTH) {
+        var rg = remote.byGame || {}, changed = false;
+        Object.keys(rg).forEach(function (k) {
+          var ent = rg[k];
+          if (!ent || !ent.id) return;
+          if (!Object.prototype.hasOwnProperty.call(cache.byGame, ent.id)) {
+            var p = null;
+            if (ent.j) { try { p = JSON.parse(ent.j); } catch (e) { return; } }
+            if (p && ent.solved) p.solved = true;
+            cache.byGame[ent.id] = p;
+            changed = true;
+          } else if (ent.solved && cache.byGame[ent.id] && !cache.byGame[ent.id].solved) {
+            cache.byGame[ent.id].solved = true;
+            changed = true;
+          }
+        });
+        if (changed) saveCache(cache);
+        // a puzzle already on screen learns about a solve made on another device
+        var touched = false;
+        state.puzzles.forEach(function (p) {
+          var e = rg[cloudKey(p.gameId)];
+          if (e && e.solved && !p.solved) { p.solved = true; touched = true; }
+        });
+        if (touched) refreshPlayerChrome();
+      }
+
+      // The account only ever arrives from the cloud on a device that has none
+      // of its own: whoever typed a username into this browser meant it.
+      if (state.username || !remote.username) return;
+      state.site = remote.site === 'lichess' ? 'lichess' : 'chesscom';
+      state.username = remote.username;
+      saveLastUser();
+      (sourceReady || Promise.resolve()).then(function () {
+        if (state.source !== 'manual') return;      // suite mode brings its own games
+        renderSource();
+        if (!buildPromise && $id('player').classList.contains('hide')) runBuild(true);
+      });
+    }
+
+    // What sync.js needs, and nothing else.
+    window.YcpCloud = {
+      merge: mergeCloud,
+      setPusher: function (fn) { cloudPush = fn; if (fn) schedulePush(); }
+    };
 
     function renderSource() {
       var el = $id('source');
@@ -490,9 +610,32 @@
         gameId: game.id, site: game.site, url: game.url, opponent: game.opponent,
         date: game.date, timeClass: game.timeClass, userColor: game.userColor,
         fen: fens[pj], moveNumber: Math.floor(pj / 2) + 1,
+        // the opponent move that produced this position — what the board
+        // highlights so you can see what you were answering
+        prevUci: pj > 0 ? ucis[pj - 1] : null, prevSan: pj > 0 ? sans[pj - 1] : null,
         playedUci: ucis[pj], playedSan: sans[pj], playedAfterCp: worst.after,
         bestUci: results[pj].bestmove, beforeCp: worst.before, loss: worst.loss, solved: false
       };
+    }
+
+    // A puzzle cached before this app highlighted the opponent's move has no
+    // record of it — but the position does, and the game is still here. Replay
+    // it, find the ply the puzzle was cut from, and the move before it is the
+    // one we want. No engine, so a whole cache is repaired in milliseconds.
+    // Returns true when the puzzle changed and the cache is worth rewriting.
+    function backfillPrev(p, game) {
+      if (!p || p.prevUci !== undefined) return false;
+      p.prevUci = null; p.prevSan = null;      // settled either way — never asked again
+      if (!game || !game.moves) return true;
+      var c = new Chess(), fens = [c.fen()], sans = [], ucis = [];
+      for (var i = 0; i < game.moves.length; i++) {
+        var mv = c.move(game.moves[i]);
+        if (!mv) break;
+        sans.push(mv.san); ucis.push(mv.from + mv.to + (mv.promotion || '')); fens.push(c.fen());
+      }
+      var at = fens.indexOf(p.fen);
+      if (at > 0) { p.prevUci = ucis[at - 1]; p.prevSan = sans[at - 1]; }
+      return true;
     }
 
     // Reentrancy guard: the manual "Check for new games" flow can call this
@@ -545,6 +688,7 @@
         var puzzle;
         if (Object.prototype.hasOwnProperty.call(cache.byGame, g.id)) {
           puzzle = cache.byGame[g.id];
+          if (backfillPrev(puzzle, g)) saveCache(cache);
           setProgress('Loaded cached game ' + (gi + 1) + '/' + games.length + ' (vs ' + escapeHtml(g.opponent) + ')', ((gi + 1) / games.length) * 100);
         } else {
           (function (cur, idx) {
@@ -572,6 +716,7 @@
       refreshPlayerChrome();
       setProgress('Done — found ' + state.puzzles.length + ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' from ' + games.length + ' losses.', 100);
       setBuilding(false);
+      schedulePush();
       if (state.puzzles.length) $id('startSolvingBtn').classList.remove('hide');
       else setSetupError('No clear one-move blunders found in those games. Try scanning more (?maxgames=20) or a deeper look (?depth=14).');
     }
@@ -609,9 +754,19 @@
       if (state.board) return;
       state.board = Chessboard('board', {
         draggable: true, position: 'start', pieceTheme: pieceTheme,
-        onDrop: onDrop, onSnapEnd: function () { if (curPuzzle() && solveState !== 'checking') state.board.position(shownFen); }
+        onDragStart: onDragStart, onDrop: onDrop,
+        onSnapEnd: function () { if (curPuzzle() && solveState !== 'checking') state.board.position(shownFen); }
       });
-      window.addEventListener('resize', function () { if (state.board) state.board.resize(); });
+      // A resize rebuilds every square from scratch, which throws the
+      // highlights away with them; put them back.
+      window.addEventListener('resize', function () {
+        if (!state.board) return;
+        state.board.resize();
+        paintMarks();
+      });
+      var b = $id('board');
+      b.addEventListener('mousedown', onPress);
+      b.addEventListener('touchstart', onPress, { passive: true });
     }
 
     var solveState = 'solving';   // solving | checking | solved | revealed
@@ -626,8 +781,12 @@
       ensureBoard();
       solveState = 'solving'; attempts = 0; shownFen = p.fen;
       clearHighlights();
+      // orientation() and position() both rebuild or redraw, so the marks go on
+      // after them: the opponent's move is the first thing to look at here.
       state.board.orientation(p.userColor);
       state.board.position(p.fen);
+      marks.prev = p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+      paintMarks();
       var moveNo = p.moveNumber;
       $id('whoTitle').textContent = 'You are ' + p.userColor + ' — move ' + moveNo;
       $id('lossPill').textContent = isMate(p.playedAfterCp)
@@ -635,8 +794,11 @@
         : '−' + (p.loss / 100).toFixed(1) + ' pawns in-game';
       $id('gameMeta').innerHTML = 'vs <b style="color:var(--mist-300)">' + escapeHtml(p.opponent || '?') + '</b>' +
         (p.timeClass ? ' · ' + escapeHtml(p.timeClass) : '') + (p.date ? ' · ' + p.date.slice(0, 10) : '');
-      $id('prompt').innerHTML = 'Your move. In this lost game your position collapsed here — find the move you should have played.';
-      $id('turnHint').textContent = (p.userColor === 'white' ? 'White' : 'Black') + ' to move — drag a piece';
+      $id('prompt').innerHTML =
+        (p.prevSan ? '<b style="color:var(--mist-100)">' + escapeHtml(p.opponent || 'Your opponent') +
+          ' has just played ' + escapeHtml(p.prevSan) + '</b> (marked on the board). ' : '') +
+        'In this lost game your position collapsed here — find the move you should have played.';
+      $id('turnHint').textContent = moveHint(p);
       setStatus('', '');
       $id('revealBtn').classList.remove('hide'); $id('retryBtn').classList.add('hide');
       $id('solution').classList.add('hide');
@@ -646,6 +808,9 @@
     }
 
     function setStatus(msg, cls) { var s = $id('status'); s.textContent = msg; s.className = 'status ' + (cls || ''); }
+    function moveHint(p) {
+      return (p.userColor === 'white' ? 'White' : 'Black') + ' to move — tap a piece, then its square (or drag)';
+    }
     // refresh counter/solved/list while a background build keeps adding puzzles
     function refreshPlayerChrome() {
       if ($id('player').classList.contains('hide')) return;
@@ -658,29 +823,130 @@
       $id('solvedCount').textContent = 'Solved ' + n + ' / ' + state.puzzles.length;
     }
 
-    function clearHighlights() {
-      var b = document.getElementById('board');
-      if (!b) return;
-      b.querySelectorAll('.ycp-from,.ycp-to,.ycp-bad').forEach(function (el) { el.classList.remove('ycp-from', 'ycp-to', 'ycp-bad'); });
-    }
-    function hl(square, cls) {
-      var el = document.querySelector('#board .square-' + square);
+    /* ---- highlights ----
+       Every mark the board can wear lives here rather than on the DOM, because
+       chessboard.js rebuilds its squares on resize and on a change of
+       orientation. Holding the marks in one object means a rebuilt board can
+       simply be repainted from it. */
+    var MARK_CLASSES = ['ycp-prev-from', 'ycp-prev-to', 'ycp-from', 'ycp-to', 'ycp-bad', 'ycp-sel', 'ycp-dest', 'ycp-dest-cap'];
+    var marks = { prev: null, from: null, to: null, bad: null, sel: null, dests: [] };
+
+    function mark(square, cls) {
+      if (!square) return;
+      var el = document.querySelector('#board [data-square="' + square + '"]');
       if (el) el.classList.add(cls);
+    }
+    function paintMarks() {
+      var b = $id('board'); if (!b) return;
+      b.querySelectorAll('[data-square]').forEach(function (el) {
+        el.classList.remove.apply(el.classList, MARK_CLASSES);
+      });
+      if (marks.prev) { mark(marks.prev[0], 'ycp-prev-from'); mark(marks.prev[1], 'ycp-prev-to'); }
+      mark(marks.from, 'ycp-from');
+      mark(marks.to, 'ycp-to');
+      mark(marks.bad, 'ycp-bad');
+      mark(marks.sel, 'ycp-sel');
+      marks.dests.forEach(function (d) { mark(d.sq, d.cap ? 'ycp-dest-cap' : 'ycp-dest'); });
+    }
+    // The opponent's move survives this: it describes the puzzle, not the try.
+    function clearHighlights() {
+      marks.from = marks.to = marks.bad = marks.sel = null;
+      marks.dests = [];
+      selectedSq = null;
+      paintMarks();
+    }
+
+    /* ---- moving: drag, or tap the piece then tap the square ----
+       Both roads end at submitMove. Touch made the second one necessary — a
+       drag across a phone screen fights the page's own scrolling — but it is
+       the easier move to play with a mouse too. */
+    var selectedSq = null;
+    var lastTouchAt = 0;     // a touch also arrives as a mouse press; only count it once
+
+    // Whether a move can be played right now: there is a puzzle, it is unsolved,
+    // and the board is showing its position rather than a try being taken back.
+    function canMoveNow() {
+      var p = curPuzzle();
+      return !!p && solveState === 'solving' && shownFen === p.fen;
+    }
+    function isDest(square) {
+      return marks.dests.some(function (d) { return d.sq === square; });
+    }
+    function clearSelection() {
+      if (!selectedSq) return;
+      selectedSq = null; marks.sel = null; marks.dests = [];
+      paintMarks();
+    }
+    function selectSquare(square, chess) {
+      selectedSq = square;
+      marks.sel = square;
+      marks.dests = chess.moves({ square: square, verbose: true }).map(function (m) {
+        return { sq: m.to, cap: m.flags.indexOf('c') >= 0 || m.flags.indexOf('e') >= 0 };
+      });
+      paintMarks();
+    }
+
+    // A tap is read on the press rather than on the click, because there is no
+    // usable click to read: chessboard.js lifts the pressed piece into a
+    // floating element that follows the cursor, so a click's two ends sit on
+    // different nodes and the browser reports the pair's common ancestor — the
+    // board, never a square. At mousedown the square is still right there under
+    // the pointer.
+    function onPress(e) {
+      if (e.type === 'touchstart') lastTouchAt = Date.now();
+      else if (e.button !== 0 || Date.now() - lastTouchAt < 700) return;
+      var el = e.target && e.target.closest ? e.target.closest('[data-square]') : null;
+      if (!el) return;
+      pickSquare(el.getAttribute('data-square'));
+    }
+
+    function pickSquare(square) {
+      var p = curPuzzle();
+      if (!p || !canMoveNow()) { clearSelection(); return; }
+      if (selectedSq === square) { clearSelection(); return; }
+      var c = new Chess(); c.load(p.fen);
+      if (selectedSq && isDest(square)) {
+        var from = selectedSq;
+        clearSelection();
+        submitMove(from, square);
+        return;
+      }
+      var piece = c.get(square);
+      if (piece && piece.color === c.turn()) selectSquare(square, c);
+      else clearSelection();
+    }
+
+    // Pressing a piece is normally the start of a drag — except when a piece is
+    // already picked and the press lands on one of its destinations. That press
+    // is the second half of a tap-move, and letting a drag begin on the piece
+    // being captured would have it snap back over the move we are about to play.
+    function onDragStart(source, piece) {
+      var p = curPuzzle();
+      if (!p || !canMoveNow()) return false;
+      if (selectedSq && source !== selectedSq && isDest(source)) return false;
+      return piece.charAt(0) === p.fen.split(' ')[1];
     }
 
     function onDrop(source, target) {
+      if (source === target || !canMoveNow()) return 'snapback';
+      return submitMove(source, target) ? undefined : 'snapback';
+    }
+
+    // The one place a try becomes a try, however it was played.
+    function submitMove(source, target) {
       var p = curPuzzle();
-      if (!p || solveState === 'checking' || solveState === 'solved' || solveState === 'revealed') return 'snapback';
-      if (source === target) return 'snapback';
+      if (!p || !canMoveNow()) return false;
       var c = new Chess(); c.load(p.fen);
       var mv = c.move({ from: source, to: target, promotion: 'q' });
-      if (!mv) return 'snapback';
+      if (!mv) return false;
+      clearSelection();
       shownFen = c.fen();
       solveState = 'checking';
       setStatus('Checking your move…', 'think');
       $id('turnHint').innerHTML = '<span class="spinner"></span> analysing';
       setTimeout(function () { state.board.position(shownFen); }, 0);
       attemptMove(p, mv, c.fen());
+      return true;
     }
 
     async function attemptMove(p, mv, afterFen) {
@@ -694,7 +960,7 @@
         p.solved = true;
         markSolvedInCache(p);
         solveState = 'solved';
-        clearHighlights(); hl(mv.from, 'ycp-from'); hl(mv.to, 'ycp-to');
+        clearHighlights(); marks.from = mv.from; marks.to = mv.to; paintMarks();
         setStatus('Solved! ' + mv.san + ' holds — eval ' + fmtCp(afterCp) + ' (you kept your position).', 'good');
         $id('turnHint').textContent = 'Solved ✓';
         revealSolution(p, true);
@@ -703,9 +969,17 @@
         attempts++;
         solveState = 'solving';
         setStatus(mv.san + ' ' + dropPhrase(p.beforeCp, afterCp) + ' (to ' + fmtCp(afterCp) + '). Try again' + (attempts >= 2 ? ', or reveal the solution.' : '.'), 'bad');
-        $id('turnHint').textContent = (p.userColor === 'white' ? 'White' : 'Black') + ' to move — drag a piece';
+        $id('turnHint').textContent = moveHint(p);
         $id('retryBtn').classList.remove('hide');
-        setTimeout(function () { if (curPuzzle() === p && solveState === 'solving') { shownFen = p.fen; state.board.position(p.fen); } }, 650);
+        // the square that lost the position, marked for as long as it is on
+        // the board — the move is taken back a moment later
+        marks.bad = mv.to; paintMarks();
+        setTimeout(function () {
+          if (curPuzzle() !== p || solveState !== 'solving') return;
+          shownFen = p.fen;
+          state.board.position(p.fen);
+          marks.bad = null; paintMarks();
+        }, 650);
       }
     }
 
@@ -713,8 +987,10 @@
       var p = curPuzzle(); if (!p) return;
       solveState = 'solving'; shownFen = p.fen; clearHighlights();
       state.board.position(p.fen);
+      marks.prev = p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+      paintMarks();
       setStatus('', ''); $id('retryBtn').classList.add('hide');
-      $id('turnHint').textContent = (p.userColor === 'white' ? 'White' : 'Black') + ' to move — drag a piece';
+      $id('turnHint').textContent = moveHint(p);
     }
 
     function reveal() {
@@ -725,7 +1001,7 @@
       shownFen = best.fen();
       state.board.position(shownFen);
       clearHighlights();
-      if (p.bestUci) { hl(p.bestUci.slice(0, 2), 'ycp-from'); hl(p.bestUci.slice(2, 4), 'ycp-to'); }
+      if (p.bestUci) { marks.from = p.bestUci.slice(0, 2); marks.to = p.bestUci.slice(2, 4); paintMarks(); }
       setStatus('The engine plays ' + (bm ? bm.san : '—') + '.', '');
       $id('turnHint').textContent = 'Solution shown';
       revealSolution(p, false);
@@ -743,7 +1019,7 @@
         '<div style="margin-top:6px; color:var(--rose)">In the game you played <b>' + escapeHtml(playedSan) + '</b>, ' + playedTail + '</div>';
       $id('solText').innerHTML = html;
       // Play link carries the puzzle position; game link opens the source game.
-      var playHref = SUITE_BASE + 'play/?fen=' + encodeURIComponent(p.fen);
+      var playHref = PLAY_BASE + '?fen=' + encodeURIComponent(p.fen);
       $id('playLink').setAttribute('href', playHref);
       var gl = $id('gameLink');
       if (p.url) { gl.setAttribute('href', p.url); gl.classList.remove('hide'); } else { gl.classList.add('hide'); }
@@ -831,8 +1107,8 @@
     window.SuiteBoardContext = function () { var p = curPuzzle(); return p ? { fen: p.fen } : {}; };
 
     // small hook so a move can be submitted programmatically (used by tests and
-    // handy for debugging); mirrors a board drag exactly.
-    window.__ycp = { current: function () { return curPuzzle(); }, move: onDrop, state: state };
+    // handy for debugging); the same entry point a drag or a tap arrives at.
+    window.__ycp = { current: function () { return curPuzzle(); }, move: submitMove, state: state };
 
     // ---- wire up ----
     function go(delta) {
@@ -855,8 +1131,11 @@
     // wait for DOMContentLoaded before detecting the source.
     // If we already know who the user is (suite profile or remembered username),
     // build immediately and drop them into their most recent unsolved puzzle.
+    // Held so a cloud copy arriving mid-flight knows whether this app is
+    // running on the suite's games or on an account of its own.
+    var sourceReady = null;
     function init() {
-      detectSource().then(function () {
+      sourceReady = detectSource().then(function () {
         renderSource();
         var last = loadLastUser();
         if (state.source === 'suite') {
