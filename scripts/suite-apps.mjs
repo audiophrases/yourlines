@@ -38,6 +38,7 @@ export function suiteApps(siblings) {
       include: [
         'index.html',
         'app.js',
+        'sync.js',
         'style.css',
         'favicon.ico',
         'favicon.png',
