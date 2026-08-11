@@ -61,7 +61,7 @@ export function suiteApps(siblings) {
       name: 'puzzles',
       title: 'Your Chess Puzzles',
       src: join(siblings, 'yourchesspuzzles'),
-      include: ['index.html', 'libs', 'pieces', 'sounds', 'engine'],
+      include: ['index.html', 'sync.js', 'libs', 'pieces', 'sounds', 'engine'],
     },
   ];
 }
