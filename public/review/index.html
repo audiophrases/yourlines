@@ -74,6 +74,10 @@
       box-sizing: border-box;
     }
     #board .square-55d63.selected { background-color: rgba(251, 191, 36, 0.5); }
+    /* The move that was just played. A background tint rather than the inset
+       box-shadow the engine's best-move borders use, so a square can carry
+       both at once — "this is what you played, that is what it wanted". */
+    #board .square-55d63.last-move { background-color: rgba(155, 199, 0, 0.41); }
     #board { background-color: #0b0e15; border-radius: 0.75rem; }
     .board-shell { box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45); position: relative; }
     #promotion-overlay {
@@ -3002,6 +3006,29 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         selectedSquare = null;
       }
 
+      /* --- last-move highlight -------------------------------------------
+         Stepping through a game, the board alone does not say which piece
+         just moved; on a quiet positional move that is genuinely hard to
+         spot. These tint the from/to squares of the move you are standing
+         on. Kept as a class rather than the inline box-shadow the best-move
+         overlay writes, so the two never overwrite one another.
+
+         chessboard.js rebuilds its squares on resize and flip, which drops
+         the class — hence the stored pair and the reapply, mirroring what
+         reapplyStoredBestMoveVisuals() already does for the engine's. */
+      let lastMoveSquares = null;
+
+      function reapplyLastMoveHighlight() {
+        if (!lastMoveSquares) return;
+        lastMoveSquares.forEach(sq => $('#board .square-' + sq).addClass('last-move'));
+      }
+
+      function setLastMoveHighlight(move) {
+        $('#board .square-55d63').removeClass('last-move');
+        lastMoveSquares = (move && move.from && move.to) ? [move.from, move.to] : null;
+        reapplyLastMoveHighlight();
+      }
+
       function isExploring() {
         return !!(explorationState && explorationState.active);
       }
@@ -3012,7 +3039,10 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           baseFen: baseFen || null,
           baseIndex: Number.isFinite(baseIndex) ? baseIndex : -1,
           moves: [],
-          cursor: 0
+          cursor: 0,
+          /* the game move we branched off, so rewinding to the start of a
+             variation shows it again rather than an unmarked board */
+          baseMove: lastMoveSquares ? { from: lastMoveSquares[0], to: lastMoveSquares[1] } : null
         };
       }
 
@@ -3054,6 +3084,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           explorationState.cursor = i + 1;
         }
         if (board) board.position(game.fen(), false);
+        setLastMoveHighlight(lastAppliedMove || explorationState.baseMove);
         updateMaterialDisplay();
         if (lastAppliedMove) playMoveSound(lastAppliedMove);
       }
@@ -3229,6 +3260,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             explorationState.moves.push({ san: move.san, from: move.from, to: move.to, promotion: move.promotion });
             explorationState.cursor = explorationState.moves.length;
             if (board) board.position(game.fen());
+            setLastMoveHighlight(move);
             updateMaterialDisplay();
             playMoveSound(move);
             clearSelected();
@@ -7362,6 +7394,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
           board.resize();
           adjustAnalysisHeight();
           resizeEvalGraph();
+          reapplyLastMoveHighlight();
           if (showBestMove && (lastBestMove || lastSecondBestMove)) {
             reapplyStoredBestMoveVisuals();
           }
@@ -7379,6 +7412,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         ensureBoardInitialized();
         applyBoardOrientationForPlayer();
         board.position('start');
+        setLastMoveHighlight(null);
         game.reset();
         clearExploration(true);
         currentMoveIndex = -1;
@@ -7865,6 +7899,9 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
             if (applied) lastAppliedMove = applied;
           }
           if (board) board.position(game.fen(), false);
+          /* idx of -1 is the starting position — no move to mark, and the
+             null clears whatever the previous position had lit up */
+          setLastMoveHighlight(idx >= 0 ? lastAppliedMove : null);
           updateMaterialDisplay();
           if (idx >= 0 && lastAppliedMove) playMoveSound(lastAppliedMove);
           $('.move-item').removeClass('highlight');
@@ -7898,6 +7935,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         $('#flip-btn').on('click', function(){
           if (board) {
             board.flip();
+            reapplyLastMoveHighlight();
             if (showBestMove && (lastBestMove || lastSecondBestMove)) {
               reapplyStoredBestMoveVisuals();
             }
@@ -7942,6 +7980,7 @@ DISCIPLINE: Use SAN and {eval} tokens exactly as provided in the input. No extra
         $(window).on('resize', function(){
           adjustAnalysisHeight();
           resizeEvalGraph();
+          reapplyLastMoveHighlight();
           if (showBestMove && (lastBestMove || lastSecondBestMove)) {
             reapplyStoredBestMoveVisuals();
           }
