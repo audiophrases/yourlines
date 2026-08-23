@@ -26,12 +26,18 @@ features (shared profiles, "review this game", "train this line").
 
 ### Carrying the board between apps
 
-The switcher does more than link: an app that exposes
-`window.SuiteBoardContext()` (returning `{pgn}` and/or `{fen}`) hands the
-position you are looking at to whichever app you jump to. **Play** opens it on
-the analysis board, **Spar** picks the game up and plays on from it with you on
-the side to move, **Lines** shows how your own games handled it, and **Gym**
-looks for trainer lines that match.
+There are two switchers, listing the same six apps. Lines builds its own into
+its header (`SuiteNav` in `src/App.tsx`), reading the line on the board
+straight out of the store. The vanilla sub-apps get the floating pill instead,
+injected by the sync — so the hub does not carry it, and adding it there would
+only give Lines two.
+
+Either one does more than link: it hands the position you are looking at to
+whichever app you jump to. **Play** opens it on the analysis board, **Spar**
+picks the game up and plays on from it with you on the side to move, **Lines**
+shows how your own games handled it, and **Gym** looks for trainer lines that
+match. A sub-app joins in by exposing `window.SuiteBoardContext()`, returning
+`{pgn}` and/or `{fen}`.
 
 The pill keeps out of whatever each app puts in its own top-right corner —
 ChessGym's admin drawer, the sign-in buttons in Puzzles and Spar — and folds

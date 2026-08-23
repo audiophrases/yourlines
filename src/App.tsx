@@ -127,18 +127,24 @@ function SuiteNav() {
   // vite.config.ts), so these links work under a GitHub Pages sub-path too.
   const base = import.meta.env.BASE_URL;
 
-  const playHref = path.length
-    ? `${base}play/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
-    : fen && !fen.startsWith(START_FEN_PREFIX)
-      ? `${base}play/?fen=${encodeURIComponent(fen)}`
-      : `${base}play/`;
+  // Play and Spar take the board the same way, and the floating switcher the
+  // sub-apps carry sends it to them in the same shape: the line as a game
+  // where there is one, the position by itself where there is not, and
+  // neither for the starting position.
+  const boardHref = (app: string) =>
+    path.length
+      ? `${base}${app}/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
+      : fen && !fen.startsWith(START_FEN_PREFIX)
+        ? `${base}${app}/?fen=${encodeURIComponent(fen)}`
+        : `${base}${app}/`;
   const gymHref = path.length
     ? `${base}gym/?lookup=${encodeURIComponent(path.join(' '))}`
     : `${base}gym/`;
 
   const apps = [
     { label: 'Lines', href: base, active: true, title: undefined as string | undefined },
-    { label: 'Play', href: playHref, title: 'Open the analysis board with the current position' },
+    { label: 'Play', href: boardHref('play'), title: 'Open the analysis board with the current position' },
+    { label: 'Spar', href: boardHref('spar'), title: 'Carry on from the current position against the sparring coach' },
     { label: 'Gym', href: gymHref, title: 'Find trainer lines matching the current position' },
     { label: 'Review', href: `${base}review/`, title: undefined as string | undefined },
     { label: 'Puzzles', href: `${base}puzzles/`, title: 'Play puzzles from your own lost games' },
