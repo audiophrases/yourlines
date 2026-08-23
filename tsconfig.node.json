@@ -8,6 +8,9 @@
 
     /* Bundler mode */
     "module": "nodenext",
+    // The sub-app registry vite.config.ts reads is plain JS shared with the
+    // sync and deploy scripts; inference off it is enough, so no checkJs.
+    "allowJs": true,
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",

@@ -33,6 +33,13 @@ the analysis board, **Spar** picks the game up and plays on from it with you on
 the side to move, **Lines** shows how your own games handled it, and **Gym**
 looks for trainer lines that match.
 
+The pill keeps out of whatever each app puts in its own top-right corner —
+ChessGym's admin drawer, the sign-in buttons in Puzzles and Spar — and folds
+down to a single toggle where there is no room for the row. It hides itself
+altogether while an app has the board full screen. Which app keeps what in
+that corner is listed in `public/suite/nav.js`; the apps carry nothing about
+the switcher.
+
 ![landing](docs/landing.png)
 
 ## What it does

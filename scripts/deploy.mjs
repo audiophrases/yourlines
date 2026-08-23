@@ -215,7 +215,16 @@ function main() {
   const message = changedApps.length ? `chore: sync ${changedApps.join(', ')} into the suite` : 'chore: update suite';
 
   console.log('\nCommitting + pushing yourlines...');
-  stageAll(repoRoot, 'yourlines');
+  const staged = stageAll(repoRoot, 'yourlines');
+  if (!staged.changed) {
+    // Git reports a file as modified when only its line endings differ from
+    // what core.autocrlf wants in the working tree, which is exactly what a
+    // sync of sources stored with LF leaves behind. Git itself sees no
+    // change, so nothing stages and a commit would fail on an empty tree.
+    // Having nothing to publish is not a failure.
+    console.log('Nothing actually changed — the live suite is already current.');
+    return;
+  }
   run('git', ['commit', '-m', message], repoRoot);
   run('git', ['push'], repoRoot);
 

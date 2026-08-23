@@ -43,6 +43,10 @@
   try {
     collapsed = localStorage.getItem(LS_KEY) === 'collapsed';
   } catch (e) {}
+  /* Shut because there is nowhere to open into is not the same thing as shut
+     because you asked, so it is kept apart: never stored, and a tap on the
+     toggle overrules it. */
+  var squeezed = false;
 
   var host = document.createElement('div');
   host.id = 'yl-suite-nav';
@@ -158,11 +162,16 @@
   toggle.style.cssText =
     'border:0;background:transparent;color:#6b7290;cursor:pointer;padding:5px 8px;border-radius:999px;font:inherit;';
 
+  function shut() {
+    return collapsed || squeezed;
+  }
+
   function render() {
-    items.style.display = collapsed ? 'none' : 'flex';
-    toggle.textContent = collapsed ? '♞' : '×';
-    toggle.title = collapsed ? 'Open suite navigation' : 'Collapse';
-    if (collapsed) {
+    var closed = shut();
+    items.style.display = closed ? 'none' : 'flex';
+    toggle.textContent = closed ? '♞' : '×';
+    toggle.title = closed ? 'Open suite navigation' : 'Collapse';
+    if (closed) {
       toggle.style.color = '#f2b544';
       toggle.style.fontSize = '15px';
     } else {
@@ -172,7 +181,8 @@
   }
 
   toggle.onclick = function () {
-    collapsed = !collapsed;
+    collapsed = !shut();
+    squeezed = false;          // asking outranks anything measured
     try {
       localStorage.setItem(LS_KEY, collapsed ? 'collapsed' : 'open');
     } catch (e) {}
@@ -183,27 +193,124 @@
   host.appendChild(toggle);
   render();
 
-  /** Keep the pill clear of a host app's own fixed top-right UI (ChessGym's
-   *  admin drawer, which is resizable and collapsible): position it just left
-   *  of the drawer and follow its size. */
-  function dodgeFixedDrawers() {
-    var drawer = document.querySelector('.admin-panel');
-    if (!drawer || host.__dodging) return;
-    host.__dodging = true;
+  /* ---- staying out of the host app's way ----
+     The pill is fixed to the top-right corner, which is exactly where several
+     of these apps keep something of their own: ChessGym's admin drawer, and
+     the sign-in button in the Puzzles and Sparring Coach headers. Which app
+     puts what there is a fact about the app rather than about the switcher —
+     but the switcher is the guest here, so it does the adapting and the apps
+     carry nothing about it.
+
+     A drawer that is fixed, resizable and collapsible is followed as it
+     changes. A header that simply scrolls away with the page is measured and
+     parked to the left of, with no scroll listener: scrolling moves it up and
+     down, and all the pill needs to know is where its left edge is. */
+  var HOST_CHROME = {
+    gym: '.admin-panel',
+    puzzles: 'header .acct',
+    spar: 'header .acct',
+  };
+
+  var GAP = 10;
+  var MIN_ROOM = 46;    // the collapsed pill's own width, and never less
+  var TOGGLE = 34;      // and what the toggle beside the row takes up
+
+  /* A pill is one row. Rather than guess at the width where that stops being
+     possible, ask: laid out with no wrapping and free to be as wide as it
+     likes, this is what the row wants. It cannot change afterwards — the six
+     apps are fixed — so it is measured once and kept. */
+  var rowWidth = 0;
+  function wantsWidth() {
+    if (rowWidth) return rowWidth;
+    var display = items.style.display, wrap = items.style.flexWrap, width = items.style.width;
+    items.style.display = 'flex';
+    items.style.flexWrap = 'nowrap';
+    items.style.width = 'max-content';
+    rowWidth = Math.ceil(items.getBoundingClientRect().width);
+    items.style.display = display;
+    items.style.flexWrap = wrap;
+    items.style.width = width;
+    return rowWidth;
+  }
+
+  /* Sizing and placing the pill: clear of whatever the app keeps in the
+     corner, clear of the edge of the screen, and folded away when the row
+     will not fit. Every app runs this — the ones with nothing to dodge still
+     have a screen width to fit inside. */
+  function keepClear() {
+    var selector = HOST_CHROME[active];
+    var chrome = selector ? document.querySelector(selector) : null;
+    // Called again once the host app has finished building itself, by which
+    // time its corner may have moved: measure again rather than bail out.
+    if (host.__reposition) return host.__reposition();
+    var fixed = !!chrome && getComputedStyle(chrome).position === 'fixed';
+
     var reposition = function () {
-      var rect = drawer.getBoundingClientRect();
-      var visible = rect.width > 0 && rect.height > 0 && getComputedStyle(drawer).display !== 'none';
-      host.style.right = visible ? Math.max(10, window.innerWidth - rect.left + 10) + 'px' : '10px';
+      var right = GAP;
+      if (chrome) {
+        var rect = chrome.getBoundingClientRect();
+        var shown = rect.width > 0 && rect.height > 0 && getComputedStyle(chrome).display !== 'none';
+        // Measured where it sits with the page scrolled to the top, which is
+        // the only place the pill can actually run into it.
+        var top = fixed ? rect.top : rect.top + (window.scrollY || 0);
+        var mine = host.getBoundingClientRect();
+        if (shown && top < mine.bottom && top + rect.height > mine.top) {
+          right = Math.max(GAP, window.innerWidth - rect.left + GAP);
+        }
+      }
+      // However little is left over, the pill keeps enough to be its own
+      // handle: squeezed past this it would be neither readable nor tappable,
+      // which is worse than sitting on the corner of something.
+      right = Math.min(right, Math.max(GAP, window.innerWidth - MIN_ROOM - GAP));
+      var room = window.innerWidth - right - GAP;
+      host.style.right = right + 'px';
+      host.style.maxWidth = room + 'px';
+      // A pill is one row. Where the row will not go on one, it folds away
+      // rather than stacking itself over the header it just moved out of —
+      // the toggle is the way back, and asking that way clears this.
+      squeezed = room < wantsWidth() + TOGGLE + GAP;
+      render();
+      /* A fixed offset is resolved against the nearest ancestor carrying a
+         transform or a containment, which is not always the viewport — a
+         couple of these apps grow one at phone widths. So the offset asked
+         for is not always the offset given: measure what landed and correct
+         for the difference, once, with the row already laid out again. */
+      var landed = host.getBoundingClientRect();
+      var drift = landed.right - (window.innerWidth - right);
+      if (Math.abs(drift) > 1) host.style.right = right + drift + 'px';
     };
+
+    host.__reposition = reposition;
     reposition();
     window.addEventListener('resize', reposition);
-    if (typeof ResizeObserver === 'function') {
-      new ResizeObserver(reposition).observe(drawer);
+    if (!chrome) return;
+    if (typeof ResizeObserver === 'function') new ResizeObserver(reposition).observe(chrome);
+    if (fixed) {
+      new MutationObserver(reposition).observe(chrome, {
+        attributes: true,
+        attributeFilter: ['class', 'style'],
+      });
     }
-    new MutationObserver(reposition).observe(drawer, {
-      attributes: true,
-      attributeFilter: ['class', 'style'],
-    });
+  }
+
+  /* ---- and getting out of the way altogether ----
+     An app that hands the board the whole screen has said what it wants the
+     screen for, and a pill floating over the corner of it is the one thing
+     nobody asked for. The browser's own fullscreen counts wherever it is
+     used; an app that clears its own chrome without going native says so
+     with a class, and is watched for it. */
+  var HOST_IMMERSIVE = {
+    spar: 'body.focus',
+  };
+
+  function immersive() {
+    if (document.fullscreenElement || document.webkitFullscreenElement) return true;
+    var selector = HOST_IMMERSIVE[active];
+    return !!(selector && document.querySelector(selector));
+  }
+
+  function syncVisibility() {
+    host.style.display = immersive() ? 'none' : 'flex';
   }
 
   function mount() {
@@ -212,9 +319,18 @@
       return;
     }
     document.body.appendChild(host);
-    // Host apps may build their UI after load — check again shortly.
-    dodgeFixedDrawers();
-    setTimeout(dodgeFixedDrawers, 1000);
+    // Host apps may build their UI after load — look again shortly.
+    keepClear();
+    setTimeout(keepClear, 1000);
+    syncVisibility();
+    document.addEventListener('fullscreenchange', syncVisibility);
+    document.addEventListener('webkitfullscreenchange', syncVisibility);
+    if (HOST_IMMERSIVE[active]) {
+      new MutationObserver(syncVisibility).observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class'],
+      });
+    }
   }
   mount();
 })();

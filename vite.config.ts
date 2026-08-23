@@ -3,19 +3,26 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { readFile } from 'node:fs/promises'
 import { join, extname, resolve } from 'node:path'
+import { suiteApps as suiteAppRegistry } from './scripts/suite-apps.mjs'
 
 /**
- * The suite's sub-apps (synced into public/play, public/gym, public/review by
- * scripts/sync-apps.mjs, plus public/suite) are plain static apps. Serve them
- * directly from public/ ourselves:
+ * The suite's sub-apps (synced into public/<name>/ by scripts/sync-apps.mjs,
+ * plus public/suite) are plain static apps. Serve them directly from public/
+ * ourselves:
  *  - /play -> 302 /play/ (so their relative asset paths resolve)
  *  - /play/ -> play/index.html
  *  - every file under those prefixes is read from disk with a proper MIME
  *    type, deterministically bypassing Vite's module pipeline (which 404s
  *    some classic <script src> requests, e.g. Sec-Fetch-Dest: script for
  *    files it tries to treat as modules).
+ *
+ * The names come from the same registry the sync and the deploy read, because
+ * a list of them kept here as well is a list that goes stale: an app added to
+ * the registry alone would build and publish fine and 404 in dev, which is the
+ * one place nobody would think to look. The registry's argument is where the
+ * sibling repos live, which matters to the sync and not at all to us.
  */
-const SUITE_APPS = ['play', 'gym', 'review', 'puzzles']
+const SUITE_APPS = suiteAppRegistry(resolve(process.cwd(), '..')).map((a) => a.name)
 const SUITE_PREFIXES = [...SUITE_APPS, 'suite']
 
 const MIME: Record<string, string> = {
@@ -67,7 +74,7 @@ function suiteApps(): Plugin {
         return
       }
     }
-    const m = url.match(/^\/(play|gym|review|puzzles|suite)\/(.*)$/)
+    const m = url.match(/^\/([^/]+)\/(.*)$/)
     if (!m || !SUITE_PREFIXES.includes(m[1])) return next()
     let rel: string
     try {
