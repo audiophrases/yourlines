@@ -72,6 +72,11 @@
        capture. Painted as a background layer so the square keeps its colour. */
     .square-55d63.ycp-dest { background-image: radial-gradient(circle, rgba(238,241,248,.34) 17%, transparent 18%); }
     .square-55d63.ycp-dest-cap { background-image: radial-gradient(circle, transparent 60%, rgba(238,241,248,.34) 62%); }
+    /* A refuted try, shown as a pair: your move keeps the rose ring it always
+       had, the opponent's answer wears a heavier one, so the mistake and the
+       punishment read as two halves of the same thing. */
+    .square-55d63.ycp-punish-from { box-shadow: inset 0 0 0 4px rgba(242,102,139,.3); }
+    .square-55d63.ycp-punish-to { box-shadow: inset 0 0 0 5px rgba(242,102,139,.95); }
     #board .piece-417db { cursor:pointer; }
     .pill { display:inline-flex; align-items:center; gap:4px; border-radius:8px; padding:2px 8px; font-size:12px; font-weight:700; }
     .pill.loss { background:rgba(242,102,139,.14); color:var(--rose); }
@@ -89,6 +94,22 @@
     .dot.solved { background:var(--emerald); border-color:var(--emerald); }
     .spinner { width:14px; height:14px; border:2px solid rgba(242,181,68,.3); border-top-color:var(--amber); border-radius:50%; display:inline-block; animation:spin .7s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
+    /* The punishment card: what the opponent plays after a wrong try, why it
+       works, and the line itself as chips you can step through. */
+    .refute { margin-top:12px; border:1px solid rgba(242,102,139,.35); background:rgba(242,102,139,.06);
+      border-radius:12px; padding:10px 12px; }
+    .refute-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .refute-head .verdict { font-weight:800; color:var(--mist-100); font-size:13.5px; }
+    .refute-why { font-size:13px; color:var(--mist-300); margin-top:7px; }
+    .refute-why b { color:var(--mist-100); font-weight:700; }
+    .refute-line { display:flex; flex-wrap:wrap; gap:4px; margin-top:9px; }
+    .mv { font:12px/1 ui-monospace,Consolas,monospace; border:1px solid var(--ink-700); background:var(--ink-900);
+      color:var(--mist-300); border-radius:6px; padding:5px 7px; cursor:pointer; transition:.12s; }
+    .mv:hover { color:var(--mist-100); border-color:var(--ink-500); }
+    .mv.yours { color:var(--rose); border-color:rgba(242,102,139,.4); }
+    .mv.at { background:var(--ink-700); color:var(--mist-100); border-color:var(--ink-500); }
+    .refute-nav { margin-top:9px; gap:6px; }
+    .refute-nav .btn { padding:4px 10px; font-size:12px; font-weight:600; }
   </style>
   <script src="../suite/nav.js" defer></script>
   <script src="../suite/bridge.js" defer></script>
@@ -158,6 +179,22 @@
             <div id="gameMeta" class="muted" style="font-size:12px; margin-top:4px"></div>
             <p id="prompt" style="margin:12px 0 8px">Your move — find the best continuation.</p>
             <div id="status" class="status"></div>
+            <!-- Why a wrong try is wrong: the opponent's answer to it, replayed
+                 on the board and spelled out here. -->
+            <div id="refute" class="refute hide">
+              <div class="refute-head">
+                <span id="refuteTag" class="pill loss">Refuted</span>
+                <span id="refuteVerdict" class="verdict"></span>
+                <span id="refuteEval" class="chip"></span>
+              </div>
+              <div id="refuteWhy" class="refute-why"></div>
+              <div id="refuteLine" class="refute-line"></div>
+              <div class="row refute-nav">
+                <button type="button" id="refPrevBtn" class="btn" title="Step back one move">&lsaquo;</button>
+                <button type="button" id="refNextBtn" class="btn" title="Step forward one move">&rsaquo;</button>
+                <button type="button" id="refReplayBtn" class="btn" title="Replay the punishment from your move">&#8634; Replay</button>
+              </div>
+            </div>
             <div class="row" style="margin-top:10px">
               <button id="revealBtn" class="btn">Show solution</button>
               <button id="retryBtn" class="btn hide">Try again</button>
@@ -769,7 +806,7 @@
       b.addEventListener('touchstart', onPress, { passive: true });
     }
 
-    var solveState = 'solving';   // solving | checking | solved | revealed
+    var solveState = 'solving';   // solving | checking | refuted | solved | revealed
     var attempts = 0;
     var shownFen = '';            // the fen currently shown on the board
 
@@ -780,6 +817,7 @@
       $id('setup').classList.add('hide'); $id('player').classList.remove('hide');
       ensureBoard();
       solveState = 'solving'; attempts = 0; shownFen = p.fen;
+      clearRefute();
       clearHighlights();
       // orientation() and position() both rebuild or redraw, so the marks go on
       // after them: the opponent's move is the first thing to look at here.
@@ -828,8 +866,9 @@
        chessboard.js rebuilds its squares on resize and on a change of
        orientation. Holding the marks in one object means a rebuilt board can
        simply be repainted from it. */
-    var MARK_CLASSES = ['ycp-prev-from', 'ycp-prev-to', 'ycp-from', 'ycp-to', 'ycp-bad', 'ycp-sel', 'ycp-dest', 'ycp-dest-cap'];
-    var marks = { prev: null, from: null, to: null, bad: null, sel: null, dests: [] };
+    var MARK_CLASSES = ['ycp-prev-from', 'ycp-prev-to', 'ycp-from', 'ycp-to', 'ycp-bad',
+      'ycp-punish-from', 'ycp-punish-to', 'ycp-sel', 'ycp-dest', 'ycp-dest-cap'];
+    var marks = { prev: null, punish: null, from: null, to: null, bad: null, sel: null, dests: [] };
 
     function mark(square, cls) {
       if (!square) return;
@@ -842,6 +881,7 @@
         el.classList.remove.apply(el.classList, MARK_CLASSES);
       });
       if (marks.prev) { mark(marks.prev[0], 'ycp-prev-from'); mark(marks.prev[1], 'ycp-prev-to'); }
+      if (marks.punish) { mark(marks.punish[0], 'ycp-punish-from'); mark(marks.punish[1], 'ycp-punish-to'); }
       mark(marks.from, 'ycp-from');
       mark(marks.to, 'ycp-to');
       mark(marks.bad, 'ycp-bad');
@@ -850,7 +890,7 @@
     }
     // The opponent's move survives this: it describes the puzzle, not the try.
     function clearHighlights() {
-      marks.from = marks.to = marks.bad = marks.sel = null;
+      marks.from = marks.to = marks.bad = marks.sel = marks.punish = null;
       marks.dests = [];
       selectedSq = null;
       paintMarks();
@@ -967,24 +1007,285 @@
         updateSolvedCount(); renderPuzzleList();
       } else {
         attempts++;
-        solveState = 'solving';
-        setStatus(mv.san + ' ' + dropPhrase(p.beforeCp, afterCp) + ' (to ' + fmtCp(afterCp) + '). Try again' + (attempts >= 2 ? ', or reveal the solution.' : '.'), 'bad');
-        $id('turnHint').textContent = moveHint(p);
+        solveState = 'refuted';
         $id('retryBtn').classList.remove('hide');
-        // the square that lost the position, marked for as long as it is on
-        // the board — the move is taken back a moment later
-        marks.bad = mv.to; paintMarks();
-        setTimeout(function () {
-          if (curPuzzle() !== p || solveState !== 'solving') return;
-          shownFen = p.fen;
-          state.board.position(p.fen);
-          marks.bad = null; paintMarks();
-        }, 650);
+        showRefutation(p, mv, afterFen, ev, afterCp);
       }
+    }
+
+    /* ---- why a wrong try is wrong --------------------------------------
+       A move that loses ground is only half a lesson; the other half is the
+       move that makes it lose. The engine already hands back a principal
+       variation for the position after the try, and its first move is exactly
+       that — the opponent's best answer. So the line is replayed on the board
+       and read out in words: what the answer hits, what it wins, and where
+       the evaluation lands. There is no second search here — this is the same
+       analysis that judged the try in the first place. */
+    var REFUTE_SHOW_PLY = 7;      // your move, then up to six replies on the board
+    var REFUTE_READ_PLY = 12;     // how far down the line the verdict is read
+    var REFUTE_STEP_MS = 950;
+    var PIECE_VAL = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    var PIECE_NAME = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+    var refute = null;            // the punishment currently on the board, or null
+
+    /** Walk a UCI line from `fen`, keeping the SAN, the position after each
+     *  ply and who played it. Stops at the first move the rules reject — a
+     *  principal variation is only ever as good as the search behind it. */
+    function walkLine(fen, uciLine, userColor, maxPly) {
+      var c = new Chess(), out = [];
+      try { if (c.load(fen) === false) return out; } catch (e) { return out; }
+      var yours = userColor === 'white' ? 'w' : 'b';
+      for (var i = 0; i < uciLine.length && out.length < maxPly; i++) {
+        var u = String(uciLine[i] || '');
+        if (u.length < 4) break;
+        var mv = null;
+        try { mv = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' }); } catch (e) {}
+        if (!mv) break;
+        out.push({
+          uci: u, san: mv.san, fen: c.fen(), from: mv.from, to: mv.to, piece: mv.piece,
+          captured: mv.captured || null, promotion: mv.promotion || null,
+          by: mv.color === yours ? 'you' : 'them'
+        });
+      }
+      return out;
+    }
+
+    /** What came off the board over a line, split by owner, plus whatever a
+     *  promotion added. Everything the material verdict is built from. */
+    function ledger(plies) {
+      var led = { mine: [], theirs: [], youPromo: 0, theyPromo: 0 };
+      plies.forEach(function (ply) {
+        if (ply.captured) (ply.by === 'you' ? led.theirs : led.mine).push(ply.captured);
+        if (ply.promotion) {
+          var gain = (PIECE_VAL[ply.promotion] || 0) - 1;   // the pawn itself is spent
+          if (ply.by === 'you') led.youPromo += gain; else led.theyPromo += gain;
+        }
+      });
+      return led;
+    }
+    function sumVal(list) {
+      return list.reduce(function (t, piece) { return t + (PIECE_VAL[piece] || 0); }, 0);
+    }
+    /** Points the opponent comes out ahead by, over the whole line. */
+    function netLoss(led) {
+      return sumVal(led.mine) - sumVal(led.theirs) + led.theyPromo - led.youPromo;
+    }
+
+    /** The material verdict in words — named from the pieces themselves when
+     *  that is unambiguous, and by value when it is not. */
+    function materialPhrase(led) {
+      var net = netLoss(led), mine = led.mine, theirs = led.theirs;
+      if (net < 1) return null;
+      if (!led.theyPromo && mine.length === 1 && !theirs.length) return 'your ' + PIECE_NAME[mine[0]];
+      if (!led.theyPromo && mine.length === 1 && theirs.length === 1) {
+        return 'your ' + PIECE_NAME[mine[0]] + ' for a ' + PIECE_NAME[theirs[0]];
+      }
+      if (net === 2 && mine.indexOf('r') >= 0 && (theirs.indexOf('n') >= 0 || theirs.indexOf('b') >= 0)) return 'the exchange';
+      if (net >= 8) return 'material worth a queen';
+      if (net >= 5) return 'material worth a rook';
+      if (net >= 4) return 'a piece and a pawn';
+      if (net >= 3) return 'a piece';
+      if (net >= 2) return 'two pawns';
+      return 'a pawn';
+    }
+
+    /** What the piece on `sq` attacks, read with `side` to move. After their
+     *  reply it is your turn, so the side has to be flipped to ask what their
+     *  piece now hits; the castling rights and the en-passant square belong
+     *  to the other side's turn and go with it. */
+    function hitsFrom(fen, sq, side) {
+      var f = fen.split(' ');
+      f[1] = side === 'white' ? 'w' : 'b';
+      f[2] = '-'; f[3] = '-';
+      var c = new Chess(), moves = [];
+      try {
+        if (c.load(f.join(' ')) === false) return [];
+        moves = c.moves({ square: sq, verbose: true }) || [];
+      } catch (e) { return []; }
+      var out = [], seen = {};
+      moves.forEach(function (m) {
+        if (!m.captured || seen[m.to]) return;     // a promotion capture arrives four times
+        seen[m.to] = 1;
+        out.push({ sq: m.to, piece: m.captured });
+      });
+      return out;
+    }
+    function hitName(h) {
+      return h.piece === 'k' ? 'your king' : 'your ' + PIECE_NAME[h.piece] + ' on ' + h.sq;
+    }
+    function joinList(items) {
+      if (items.length < 2) return items[0] || '';
+      return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
+    }
+    function capitalise(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+    /** "12. " / "12… " so the line reads the way a scoresheet does. */
+    function plyPrefix(p, i) {
+      var youAreWhite = p.userColor === 'white';
+      var whiteMove = youAreWhite === (i % 2 === 0);
+      var no = p.moveNumber + (youAreWhite ? Math.floor(i / 2) : Math.floor((i + 1) / 2));
+      if (whiteMove) return no + '. ';
+      return i === 0 ? no + '… ' : '';
+    }
+
+    function stopRefuteTimer() {
+      if (refute && refute.timer) { clearInterval(refute.timer); refute.timer = null; }
+    }
+    function clearRefute() {
+      stopRefuteTimer();
+      refute = null;
+      var el = $id('refute');
+      if (el) el.classList.add('hide');
+      marks.punish = null;
+    }
+
+    /** Put ply `i` of the punishment on the board; -1 is the puzzle position
+     *  itself, the one before your try. */
+    function refuteGoto(i) {
+      if (!refute || !state.board) return;
+      var plies = refute.plies, p = refute.p;
+      i = Math.max(-1, Math.min(plies.length - 1, i));
+      refute.at = i;
+      shownFen = i < 0 ? p.fen : plies[i].fen;
+      state.board.position(shownFen);
+      marks.from = marks.to = marks.bad = marks.punish = marks.sel = null;
+      marks.dests = [];
+      marks.prev = i < 0 && p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+      if (i >= 0) {
+        var ply = plies[i];
+        if (ply.by === 'you') { marks.from = ply.from; marks.bad = ply.to; }
+        else marks.punish = [ply.from, ply.to];
+      }
+      paintMarks();
+      renderRefuteLine();
+      if ($id('refPrevBtn')) $id('refPrevBtn').disabled = i <= -1;
+      if ($id('refNextBtn')) $id('refNextBtn').disabled = i >= plies.length - 1;
+    }
+
+    /** Play the line out from ply `i`, a move at a time — the punishment is
+     *  something to watch happen, not to read off a list. */
+    function refutePlay(i) {
+      if (!refute) return;
+      stopRefuteTimer();
+      refuteGoto(i);
+      if (refute.at >= refute.plies.length - 1) return;
+      refute.timer = setInterval(function () {
+        if (!refute) return;
+        if (refute.at >= refute.plies.length - 1) { stopRefuteTimer(); return; }
+        refuteGoto(refute.at + 1);
+      }, REFUTE_STEP_MS);
+    }
+
+    function renderRefuteLine() {
+      var el = $id('refuteLine');
+      if (!el || !refute) return;
+      el.innerHTML = '';
+      refute.plies.forEach(function (ply, i) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'mv' + (ply.by === 'you' ? ' yours' : '') + (i === refute.at ? ' at' : '');
+        b.textContent = plyPrefix(refute.p, i) + ply.san;
+        b.title = 'Show the position after ' + ply.san;
+        b.onclick = function () { stopRefuteTimer(); refuteGoto(i); };
+        el.appendChild(b);
+      });
+    }
+
+    /** A wrong try, explained: the answer to it, what that answer wins, and
+     *  the line it wins it with — replayed on the board move by move. */
+    function showRefutation(p, mv, afterFen, ev, afterCp) {
+      var pv = ev.pv && ev.pv.length ? ev.pv : (ev.bestmove ? [ev.bestmove] : []);
+      var tried = {
+        uci: mv.from + mv.to + (mv.promotion || ''), san: mv.san, fen: afterFen,
+        from: mv.from, to: mv.to, piece: mv.piece,
+        captured: mv.captured || null, promotion: mv.promotion || null, by: 'you'
+      };
+      var read = walkLine(afterFen, pv, p.userColor, REFUTE_READ_PLY);
+      var shown = read.slice(0, REFUTE_SHOW_PLY - 1);
+      // Never cut an exchange in half: if the very next move of the line would
+      // recapture on the square just taken, the line stops a move earlier
+      // instead, so the material it shows is the material it means.
+      while (shown.length > 1) {
+        var last = shown[shown.length - 1], next = read[shown.length];
+        if (!last.captured || !next || !next.captured || next.to !== last.to) break;
+        shown.pop();
+      }
+      var plies = [tried].concat(shown);
+      var reply = plies[1] || null;
+      var them = p.userColor === 'white' ? 'black' : 'white';
+      var oppName = escapeHtml(p.opponent || 'Your opponent');
+
+      // ---- the verdict, and the same thing as a clause -------------------
+      var mated = isMate(afterCp) && afterCp < 0;
+      // Counted off the line you are actually shown: read any deeper and a
+      // principal variation trades back and forth until the point is buried.
+      var led = ledger(plies);
+      var phrase = materialPhrase(led);
+      var tag = 'Refuted', verdict, consequence;
+      if (mated) {
+        tag = 'Mated';
+        verdict = 'Forced mate in ' + (MATE + afterCp);
+        consequence = 'it is mate in ' + (MATE + afterCp);
+      } else if (led.theyPromo && netLoss(led) >= 1) {
+        verdict = 'Their pawn promotes';
+        consequence = oppName + ' gets a new queen';
+      } else if (phrase) {
+        verdict = 'Wins ' + phrase;
+        consequence = oppName + ' wins ' + phrase;
+      } else {
+        verdict = 'Your position falls apart';
+        consequence = 'your position does not hold';
+      }
+
+      // ---- and why it happens ---------------------------------------------
+      var why;
+      if (!reply) {
+        var end = new Chess(), stale = false;
+        try { end.load(afterFen); stale = end.in_stalemate(); } catch (e) {}
+        why = '<b>' + escapeHtml(mv.san) + '</b> ' +
+          (stale ? 'is stalemate — the whole game goes with it.' : 'ends the game on the spot.');
+      } else {
+        var effects = [];
+        if (reply.captured) effects.push('takes your ' + PIECE_NAME[reply.captured] + ' on ' + reply.to);
+        var hits = hitsFrom(reply.fen, reply.to, them).filter(function (h) {
+          return h.piece === 'k' || (PIECE_VAL[h.piece] || 0) >= 3;
+        });
+        if (hits.length >= 2) effects.push('now hits ' + joinList(hits.map(hitName)) + ' at once');
+        else if (reply.san.indexOf('+') >= 0 || reply.san.indexOf('#') >= 0) effects.push('checks your king, so it has to be answered before anything else');
+        else if (hits.length === 1 && !reply.captured) effects.push('attacks ' + hitName(hits[0]));
+        why = '<b>' + escapeHtml(mv.san) + '</b> runs into <b>' + escapeHtml(reply.san) + '</b>' +
+          (effects.length ? ' — it ' + joinList(effects) + '.' : '.');
+        var rest = plies.slice(2);
+        if (rest.length) {
+          why += ' Best play carries on ' + escapeHtml(rest.map(function (ply, i) {
+            return plyPrefix(p, i + 2) + ply.san;
+          }).join(' ')) + ', and ' + consequence + '.';
+        } else {
+          why += ' ' + capitalise(consequence) + '.';
+        }
+      }
+
+      $id('refuteTag').textContent = tag;
+      $id('refuteVerdict').textContent = verdict;
+      $id('refuteEval').textContent = 'eval ' + fmtCp(p.beforeCp) + ' → ' + fmtCp(afterCp);
+      $id('refuteWhy').innerHTML = why;
+      $id('refute').classList.remove('hide');
+
+      // The card underneath spells the answer out move by move, so the status
+      // line stays the one-liner it always was.
+      setStatus(mv.san + ' ' + dropPhrase(p.beforeCp, afterCp) + '.' +
+        (attempts >= 2 ? ' Try again, or reveal the solution.' : ' Try again.'), 'bad');
+      $id('turnHint').textContent = reply
+        ? 'Watch what ' + (p.opponent || 'your opponent') + ' does about it'
+        : moveHint(p);
+
+      refute = { p: p, plies: plies, at: 0, timer: null };
+      refutePlay(0);
     }
 
     function retry() {
       var p = curPuzzle(); if (!p) return;
+      clearRefute();
       solveState = 'solving'; shownFen = p.fen; clearHighlights();
       state.board.position(p.fen);
       marks.prev = p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
@@ -995,6 +1296,7 @@
 
     function reveal() {
       var p = curPuzzle(); if (!p) return;
+      clearRefute();
       solveState = 'revealed';
       var best = new Chess(); best.load(p.fen);
       var bm = p.bestUci ? best.move({ from: p.bestUci.slice(0, 2), to: p.bestUci.slice(2, 4), promotion: p.bestUci.length > 4 ? p.bestUci[4] : undefined }) : null;
@@ -1108,7 +1410,8 @@
 
     // small hook so a move can be submitted programmatically (used by tests and
     // handy for debugging); the same entry point a drag or a tap arrives at.
-    window.__ycp = { current: function () { return curPuzzle(); }, move: submitMove, state: state };
+    window.__ycp = { current: function () { return curPuzzle(); }, move: submitMove, state: state,
+      refutation: function () { return refute; } };
 
     // ---- wire up ----
     function go(delta) {
@@ -1124,6 +1427,9 @@
     $id('refreshBtn').onclick = checkForNewGames;
     $id('revealBtn').onclick = reveal;
     $id('retryBtn').onclick = retry;
+    $id('refPrevBtn').onclick = function () { if (refute) { stopRefuteTimer(); refuteGoto(refute.at - 1); } };
+    $id('refNextBtn').onclick = function () { if (refute) { stopRefuteTimer(); refuteGoto(refute.at + 1); } };
+    $id('refReplayBtn').onclick = function () { refutePlay(0); };
     $id('backSetup').onclick = function () { $id('player').classList.add('hide'); $id('setup').classList.remove('hide'); };
     initSortSeg();
 

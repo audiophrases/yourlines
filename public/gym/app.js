@@ -919,14 +919,7 @@ const App = {
     this.$lookupGamesStatus.text("Loading recent games…");
     this.state.lookupRequestId = (this.state.lookupRequestId || 0) + 1;
     const requestId = this.state.lookupRequestId;
-    const request = fetchSuiteCachedGames(site, username).then((cachedGames) => {
-      if (cachedGames) {
-        this.lookupGamesSource = "cache";
-        return cachedGames;
-      }
-      this.lookupGamesSource = "api";
-      return site === "lichess" ? fetchLichessGames(username) : fetchChessComGames(username);
-    });
+    const request = site === "lichess" ? fetchLichessGames(username) : fetchChessComGames(username);
     request
       .then((games) => {
         if (requestId !== this.state.lookupRequestId) {
@@ -948,15 +941,8 @@ const App = {
       this.$lookupGamesStatus.text(`No recent games found for "${username}" on ${site === "lichess" ? "Lichess" : "Chess.com"}.`);
       return;
     }
-    const fromCache = this.lookupGamesSource === "cache";
-    const shown = games.slice(0, 100);
-    const countLabel = games.length > shown.length ? `latest ${shown.length} of ${games.length}` : `${games.length}`;
-    this.$lookupGamesStatus.text(
-      fromCache
-        ? `${countLabel} game${games.length === 1 ? "" : "s"} from your Lines import — click one to find matching lines.`
-        : `${games.length} recent game${games.length === 1 ? "" : "s"} — click one to find matching lines.`
-    );
-    shown.forEach((game, index) => {
+    this.$lookupGamesStatus.text(`${games.length} recent game${games.length === 1 ? "" : "s"} — click one to find matching lines.`);
+    games.forEach((game, index) => {
       const $row = $("<button>").attr({ type: "button", "data-lookup-game-index": index }).addClass("lookup-game-row");
       const dateLabel = game.date ? game.date.toLocaleDateString() : "";
       const sideLabel = game.userSide ? `You: ${game.userSide === "white" ? "White" : "Black"}` : "";
@@ -981,24 +967,6 @@ const App = {
     if (this.$lookupResults && this.$lookupResults.length) {
       this.$lookupResults[0].scrollIntoView({ block: "nearest" });
     }
-  },
-  // Deep link: ?lookup=<moves or FEN> opens the Lookup modal prefilled and
-  // runs the line matching once the dataset is loaded. Used by the yourlines
-  // suite ("Train this line" from a weak spot), but works for any shared URL.
-  openLookupFromUrl() {
-    let params;
-    try {
-      params = new URLSearchParams(window.location.search);
-    } catch (error) {
-      return;
-    }
-    const query = (params.get("lookup") || "").trim();
-    if (!query) {
-      return;
-    }
-    this.openLookupModal();
-    this.$lookupInput.val(query);
-    this.runLookup();
   },
   configureSuggestionInboxFromUrl() {
     let params;
@@ -2428,7 +2396,6 @@ const App = {
         this.showLoading(false);
         this.renderCoachComment();
         this.refreshAdminPanel();
-        this.openLookupFromUrl();
       })
       .catch((error) => {
         console.error(error);
@@ -5701,12 +5668,6 @@ function needsPromotion(from, to, chess) {
 
 const SR_STORAGE_KEY = "sr_data_v1";
 let srMemoryStore = {};
-/* Cloud sync state — the block under updateSR() explains the merge, and
-   sync.js owns the Firestore end. Declared here, beside the store they
-   mirror, so saveSR() can reach them however early it first runs. */
-let srCloudPush = null;
-let srPushTimer = null;
-let srMerging = false;
 
 function getLineKey(openingId, lineId) {
   return `sr_${openingId}_${lineId}`;
@@ -5731,7 +5692,6 @@ function saveSR(data) {
   } catch (error) {
     // Fallback to in-memory storage when localStorage is unavailable.
   }
-  srSchedulePush();
 }
 
 function ensureSRDefaults(sr) {
@@ -5807,108 +5767,6 @@ function updateSR(lineKey, quality, details) {
   data[lineKey] = sr;
   saveSR(data);
 }
-
-/* ============================================================
-   Cloud sync — your spaced-repetition record follows you.
-
-   Of everything this app keeps, the SR record is the one thing that
-   cannot be rebuilt from anything else: the lines themselves live in
-   data/, but how you personally answered them, accumulated over months,
-   exists only here. sync.js signs you in and owns the Firestore end;
-   this block owns the merge.
-
-   Every reader above calls loadSR() fresh rather than holding a copy, so
-   a merge that lands mid-session is picked up by the next render on its
-   own — there is nothing cached to go stale.
-   ============================================================ */
-
-/* Firestore map keys are field names, so they get the same scrubbing the
-   puzzles app gives its game ids; the real key rides inside the entry. */
-function srCloudKey(key) {
-  return String(key).replace(/[^A-Za-z0-9_-]/g, "_");
-}
-
-function srCloudPayload() {
-  const data = loadSR() || {};
-  const out = {};
-  Object.keys(data).forEach((key) => {
-    if (data[key]) out[srCloudKey(key)] = { k: key, v: data[key] };
-  });
-  return { sr: out, at: Date.now() };
-}
-
-/* A session finishes several lines in a row; send one write, not six. */
-function srSchedulePush() {
-  if (!srCloudPush || srPushTimer || srMerging) return;
-  srPushTimer = setTimeout(() => {
-    srPushTimer = null;
-    if (srCloudPush) srCloudPush(srCloudPayload());
-  }, 700);
-}
-
-/* Two devices that practised the same line arrive holding two different
-   schedules, and there is no averaging them: the more recent practice
-   simply *is* the state of that line, and the other device's idea of
-   when it next falls due is out of date. So the scheduling fields move
-   together, as one, decided by lastPracticedISO.
-
-   The lifetime tallies underneath take the larger of the two instead.
-   That never walks a count backwards, and re-merging the same snapshot
-   cannot inflate it — which matters, because onSnapshot hands us the
-   same document again on every reconnect. */
-function srMergeCloud(remote) {
-  if (!remote || !remote.sr) return;
-  const local = loadSR() || {};
-  let changed = false;
-
-  Object.keys(remote.sr).forEach((slot) => {
-    const ent = remote.sr[slot];
-    if (!ent || !ent.k || !ent.v) return;
-    const key = ent.k;
-    const incoming = ent.v;
-    const mine = local[key];
-    if (!mine) {
-      local[key] = incoming;
-      changed = true;
-      return;
-    }
-    const remoteIsNewer = (incoming.lastPracticedISO || "") > (mine.lastPracticedISO || "");
-    const merged = Object.assign({}, remoteIsNewer ? incoming : mine);
-    const ls = mine.stats || {};
-    const rs = incoming.stats || {};
-    merged.stats = {
-      completed: Math.max(ls.completed || 0, rs.completed || 0),
-      learned: Math.max(ls.learned || 0, rs.learned || 0),
-      perfect: Math.max(ls.perfect || 0, rs.perfect || 0),
-      totalMistakes: Math.max(ls.totalMistakes || 0, rs.totalMistakes || 0),
-      totalAttempts: Math.max(ls.totalAttempts || 0, rs.totalAttempts || 0)
-    };
-    if (JSON.stringify(merged) !== JSON.stringify(mine)) {
-      local[key] = merged;
-      changed = true;
-    }
-  });
-
-  if (!changed) return;
-  /* write the merged record without letting it bounce straight back up;
-     whatever this device knows that the cloud does not went up already,
-     on the one push that sign-in triggers */
-  srMerging = true;
-  try {
-    saveSR(local);
-  } finally {
-    srMerging = false;
-  }
-}
-
-/* What sync.js needs, and nothing else. */
-window.GymCloud = {
-  merge: srMergeCloud,
-  setPusher(fn) {
-    srCloudPush = fn;
-    if (fn) srSchedulePush();
-  }
-};
 
 function weightedPick(lines, weightFn) {
   if (!lines.length) {
@@ -6060,47 +5918,6 @@ function fetchLichessGames(username) {
         };
       });
     });
-}
-
-// When running inside the yourlines suite, the bridge (window.YourlinesSuite)
-// exposes the full game history the user already imported in Lines. Prefer it
-// over re-fetching a handful of games from the public APIs; resolve null when
-// the bridge or a matching cached profile is unavailable so callers fall back.
-function fetchSuiteCachedGames(site, username) {
-  const bridge = window.YourlinesSuite;
-  if (!bridge || typeof bridge.listProfiles !== "function") {
-    return Promise.resolve(null);
-  }
-  const key = `${site}:${username.trim().toLowerCase()}`;
-  return bridge
-    .listProfiles()
-    .then((profiles) => {
-      const match = (profiles || []).find((profile) => profile.key === key);
-      if (!match) {
-        return null;
-      }
-      return bridge.getGames(match.key).then((games) => {
-        if (!games || !games.length) {
-          return null;
-        }
-        const mapped = games.map((game) => {
-          const opponent = game.opponent || "?";
-          const isWhite = game.userColor === "white";
-          return {
-            moves: (game.moves || []).join(" "),
-            white: isWhite ? match.username : opponent,
-            black: isWhite ? opponent : match.username,
-            userSide: game.userColor || "",
-            resultLabel: game.result === "win" ? "Won" : game.result === "loss" ? "Lost" : "Draw",
-            date: game.date ? new Date(game.date) : null,
-            timeClass: game.timeClass || ""
-          };
-        });
-        mapped.sort((a, b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
-        return mapped;
-      });
-    })
-    .catch(() => null);
 }
 
 function getSideFromFen(fen) {
@@ -6307,7 +6124,3 @@ function formatModeLabel(mode) {
 $(document).ready(() => {
   App.init();
 });
-
-// Expose the current board position to the yourlines suite ("Play" in the
-// suite nav opens the analysis board at this position). Harmless standalone.
-window.SuiteBoardContext = () => ({ fen: App.chess ? App.chess.fen() : "" });
