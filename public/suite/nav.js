@@ -21,6 +21,7 @@
   var APPS = [
     { id: 'lines', label: 'Lines', href: SUITE_BASE, icon: '♞' },
     { id: 'play', label: 'Play', href: SUITE_BASE + 'play/', icon: '⚔' },
+    { id: 'spar', label: 'Spar', href: SUITE_BASE + 'spar/', icon: '🥊' },
     { id: 'gym', label: 'Gym', href: SUITE_BASE + 'gym/', icon: '🏋' },
     { id: 'review', label: 'Review', href: SUITE_BASE + 'review/', icon: '🔎' },
     { id: 'puzzles', label: 'Puzzles', href: SUITE_BASE + 'puzzles/', icon: '🧩' },
@@ -30,6 +31,7 @@
     var p = location.pathname;
     var rel = p.indexOf(SUITE_BASE) === 0 ? p.slice(SUITE_BASE.length) : p.replace(/^\//, '');
     if (rel.indexOf('play/') === 0) return 'play';
+    if (rel.indexOf('spar/') === 0) return 'spar';
     if (rel.indexOf('gym/') === 0) return 'gym';
     if (rel.indexOf('review/') === 0) return 'review';
     if (rel.indexOf('puzzles/') === 0) return 'puzzles';
@@ -48,7 +50,8 @@
     'position:fixed;top:10px;right:10px;z-index:2147483000;display:flex;align-items:center;gap:2px;' +
     'background:rgba(15,17,23,0.92);border:1px solid #363c52;border-radius:999px;padding:3px;' +
     'font:12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 8px 24px -8px rgba(0,0,0,0.6);' +
-    'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);user-select:none;';
+    'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);user-select:none;' +
+    'max-width:calc(100vw - 20px);';
 
   var active = currentApp();
 
@@ -58,6 +61,7 @@
    *  window.SuiteBoardContext (() => {pgn?, fen?}), links open the target
    *  app preloaded with that position:
    *    Play  -> /play/?pgn|fen=   (analysis board at the position)
+   *    Spar  -> /spar/?pgn|fen=   (carry on from it against the coach)
    *    Lines -> /?pgn|fen=        (how do MY games handle this?)
    *    Gym   -> /gym/?lookup=     (matching trainer lines)  */
   function hrefWithContext(app) {
@@ -70,6 +74,9 @@
       if (app.id === 'play') {
         if (pgn) return SUITE_BASE + 'play/?pgn=' + encodeURIComponent(pgn);
         if (fen) return SUITE_BASE + 'play/?fen=' + encodeURIComponent(fen);
+      } else if (app.id === 'spar') {
+        if (pgn) return SUITE_BASE + 'spar/?pgn=' + encodeURIComponent(pgn);
+        if (fen) return SUITE_BASE + 'spar/?fen=' + encodeURIComponent(fen);
       } else if (app.id === 'lines') {
         if (pgn) return SUITE_BASE + '?pgn=' + encodeURIComponent(pgn);
         if (fen) return SUITE_BASE + '?fen=' + encodeURIComponent(fen);
@@ -83,6 +90,7 @@
 
   var CONTEXT_TITLES = {
     play: 'Open the analysis board with the current position',
+    spar: 'Carry on from the current position against the sparring coach',
     lines: 'See how your own games handle the current position',
     gym: 'Find trainer lines matching the current position',
   };
@@ -141,7 +149,7 @@
   }
 
   var items = document.createElement('div');
-  items.style.cssText = 'display:flex;align-items:center;gap:2px;';
+  items.style.cssText = 'display:flex;align-items:center;gap:2px;flex-wrap:wrap;justify-content:flex-end;';
   for (var i = 0; i < APPS.length; i++) items.appendChild(makeItem(APPS[i]));
 
   var toggle = document.createElement('button');

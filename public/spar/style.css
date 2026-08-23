@@ -1,0 +1,474 @@
+/* ============================================================
+   Sparring Coach — styles
+   The board sizing rule: --board is written by app.js and is
+   always an exact multiple of 8 px, so each square track is a
+   whole number of pixels and the browser never draws a seam or
+   an uneven column between squares.
+   ============================================================ */
+
+:root{
+  --ink:#141b24;
+  --panel:#1c2734;
+  --panel-2:#233141;
+  --line:#31404f;
+  --text:#dde5ed;
+  --dim:#8496a6;
+  --gold:#e3a72f;
+  --gold-dim:#8a6a24;
+  --teal:#4fb3a5;
+
+  /* classic green & cream board */
+  --sq-light:#ebecd0;
+  --sq-dark:#779556;
+  --hl:rgba(247,247,105,.52);        /* last move — wash… */
+  --hl-line:rgba(227,167,47,.92);    /* …inside a frame, the page gold, which
+                                        holds its own on a green square */
+  --hl-w:calc(var(--sq) * .06);      /* frame width, scaled with the board */
+  --hl-prev:rgba(247,247,105,.40);   /* the half-move before it — wash alone */
+  --hl-strong:rgba(247,247,105,.72); /* selected piece */
+  --pre:rgba(104,132,214,.52);       /* a queued move — not played yet */
+  --pre-line:rgba(140,168,240,.92);
+
+  --board:480px;                   /* replaced at runtime; multiple of 8 */
+  --sq:calc(var(--board) / 8);
+  --panelw:368px;                  /* the explorer column, on wide screens */
+  --colgap:18px;
+
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+/* The panel only claims the extra width once there is width to spare. Below
+   this it stays as narrow as it always was, because every pixel it takes in
+   the 861–1150 range comes straight out of the board beside it. */
+@media(min-width:1150px){ :root{--panelw:420px} }
+*{box-sizing:border-box;margin:0;padding:0}
+/* .legend and .warn carry their own display, so [hidden] has to outrank them */
+[hidden]{display:none!important}
+html,body{background:var(--ink);color:var(--text);font-family:var(--mono);-webkit-font-smoothing:antialiased}
+/* reserve the scrollbar always, so collapsing the panel cannot change the
+   available width by a scrollbar and resize the board out from under you */
+html{scrollbar-gutter:stable}
+body{padding:14px 14px 40px;font-size:14px;line-height:1.45}
+/* On a wide screen the app is exactly as wide as it needs to be — board, gap,
+   panel — and centred, so what is left over falls either side of it instead of
+   pooling in the middle between the two columns. The board is measured against
+   the viewport and never against this element: sizing it from something that is
+   itself sized from the board would have the two chasing each other. */
+.wrap{width:100%;max-width:calc(var(--board) + var(--colgap) + var(--panelw));margin:0 auto}
+.wrap.solo{max-width:var(--board)}
+
+/* header */
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 16px;
+  border-bottom:1px solid var(--line);padding-bottom:12px;margin-bottom:16px}
+h1{font-family:var(--serif);font-size:23px;font-weight:400;letter-spacing:.01em}
+h1 em{font-style:italic;color:var(--gold)}
+/* the article is part of the name but not part of the emphasis — sized in em so
+   it keeps its proportion if the heading ever changes size */
+h1 .the{font-size:.6em;color:var(--dim);letter-spacing:.01em;margin-right:.05em}
+.tag{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+/* the cloud account, kept to the header's far edge */
+.acct{margin-left:auto;display:flex;align-items:baseline;gap:9px}
+.who{font-size:10.5px;color:var(--dim)}
+#signin{font-size:11px;padding:4px 9px}
+
+/* layout */
+.cols{display:grid;grid-template-columns:var(--board) var(--panelw);
+  gap:var(--colgap);align-items:start}
+/* phones keep the stacked layout and their own width, untouched by any of the
+   wide-screen sizing above */
+@media(max-width:860px){
+  .wrap,.wrap.solo{max-width:none}
+  .cols{grid-template-columns:1fr}
+}
+/* panel collapsed: the board is the whole app */
+.cols.solo{grid-template-columns:var(--board)}
+/* .boardcol spans the grid track and is what app.js measures;
+   .stack is pinned to the board's own width so the eval bar,
+   ribbon and controls line up with the board edges exactly. */
+.boardcol{min-width:0}
+.stack{width:var(--board)}
+
+/* board */
+.boardwrap{position:relative;width:var(--board)}
+.board{width:var(--board);height:var(--board);
+  display:grid;
+  grid-template-columns:repeat(8,var(--sq));
+  grid-template-rows:repeat(8,var(--sq));
+  border-radius:2px;overflow:hidden;
+  box-shadow:0 0 0 1px var(--line),0 2px 14px rgba(0,0,0,.35);
+  touch-action:manipulation}
+.sq{position:relative;width:var(--sq);height:var(--sq);cursor:pointer;
+  -webkit-user-select:none;user-select:none}
+.sq.l{background:var(--sq-light)}
+.sq.d{background:var(--sq-dark)}
+
+/* pieces — SVG, so they stay sharp at any board size */
+.pc{position:absolute;inset:0;width:100%;height:100%;display:block;
+  pointer-events:none;filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.28))}
+
+/* coordinates, in the opposite square colour like every major site */
+.sq .co{position:absolute;font-family:var(--mono);
+  font-size:calc(var(--sq) * .19);font-weight:700;pointer-events:none;line-height:1}
+.sq .co.f{right:calc(var(--sq) * .05);bottom:calc(var(--sq) * .03)}
+.sq .co.r{left:calc(var(--sq) * .05);top:calc(var(--sq) * .04)}
+.sq.l .co{color:var(--sq-dark)}
+.sq.d .co{color:var(--sq-light)}
+
+/* highlights sit under the piece: ::before, not ::after.
+   prev comes first so that a square belonging to both halves of the exchange
+   is painted at full strength — same specificity, later rule wins. The two
+   halves are told apart by shape rather than by opacity alone: both are lit
+   well enough to survive on a green square, and the gold frame is what marks
+   the move just played. The frame belongs to the newer half — the loudest
+   mark on the board should be the move you are answering.
+   The later rules blank the frame, so a square that is also the selected one
+   or the checked king shows as one thing, not two. */
+.sq.prev::before{content:"";position:absolute;inset:0;background:var(--hl-prev)}
+.sq.last::before{content:"";position:absolute;inset:0;background:var(--hl);
+  box-shadow:inset 0 0 0 var(--hl-w) var(--hl-line)}
+/* A queued move, in the one colour left that means nothing else here: the
+   yellows are moves that happened, gold the frame around the newest of them,
+   red a king in check, teal the engine's advice. Blue is what has not
+   happened yet. */
+.sq.pre::before{content:"";position:absolute;inset:0;background:var(--pre);
+  box-shadow:inset 0 0 0 var(--hl-w) var(--pre-line)}
+.sq.sel::before{content:"";position:absolute;inset:0;background:var(--hl-strong);box-shadow:none}
+.sq.chk::before{content:"";position:absolute;inset:0;box-shadow:none;
+  background:radial-gradient(circle,rgba(214,72,60,.9),rgba(214,72,60,0) 72%)}
+/* the engine's three best moves, over the board rather than named beside it.
+   Teal is the one colour on the board that is not already saying something:
+   yellow is the move just played, gold the one before it, red a king in check.
+   Rounded ends so an arrow reads as drawn on rather than built in.
+   The ranking is carried by weight rather than by colour, so three arrows
+   crossing each other still read in order at a glance. */
+.arrows{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3}
+.arrows line{stroke:var(--teal);stroke-width:.15;stroke-linecap:round}
+.arrows polygon{fill:var(--teal)}
+.arrows .a1{opacity:.92}
+/* the second and third choices, plainly so: thinner, and further back */
+.arrows .a2{opacity:.5}
+.arrows .a2 line{stroke-width:.105}
+.arrows .a3{opacity:.3}
+.arrows .a3 line{stroke-width:.08}
+/* the score, on its own plate so it reads over any square or piece */
+.arrows .plate{fill:rgba(20,27,36,.86)}
+.arrows text{fill:var(--text);font-family:var(--mono);font-size:.24px;
+  text-anchor:middle;dominant-baseline:central;letter-spacing:.01px}
+/* a redraw at each new depth should read as the same arrow moving, not as a
+   new one appearing, so the shafts and plates ease between positions */
+.arrows g{transition:opacity .18s ease}
+.dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:28%;height:28%;border-radius:50%;background:rgba(20,27,36,.22)}
+.ring{position:absolute;inset:0;border-radius:50%;
+  border:calc(var(--sq) * .085) solid rgba(20,27,36,.22)}
+
+/* ribbon — the signature element */
+.ribbon{margin-top:12px;background:var(--panel);border:1px solid var(--line);
+  border-left:3px solid var(--gold);border-radius:3px;padding:12px 14px;
+  transition:border-left-color .35s ease,background .35s ease}
+.ribbon.off{border-left-color:var(--line);background:var(--panel-2)}
+.ribbon .eco{font-size:10.5px;letter-spacing:.16em;color:var(--gold);text-transform:uppercase}
+.ribbon.off .eco{color:var(--dim)}
+.ribbon .name{font-family:var(--serif);font-size:19.5px;line-height:1.25;margin-top:3px}
+.ribbon .sub{font-size:11.5px;color:var(--dim);margin-top:6px}
+
+/* evaluation bar — length is the score, height is how many moves hold it.
+   The trough sits mid-tone so a thinned segment stays legible whether it is
+   the light one or the dark one. */
+.evalbar{position:relative;margin-top:10px;height:26px;background:#46545f;
+  border:1px solid var(--line);border-radius:3px;overflow:hidden;cursor:help}
+.evalbar i{position:absolute;top:50%;height:100%;transform:translateY(-50%);
+  transition:width .45s ease,height .45s ease}
+.evalbar .w{left:0;background:#eef1f2}
+.evalbar .b{right:0;background:#1b242d}
+/* Centre tick. A boundary a few percent off centre is only readable against a
+   reference, so the bar draws one — above the fills, below the label. */
+.evalbar::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
+  margin-left:-.5px;background:rgba(227,167,47,.85);z-index:1}
+.evalbar .val{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  background:rgba(20,27,36,.86);color:var(--text);border-radius:2px;
+  padding:1px 8px;font-size:13.2px;letter-spacing:.06em;white-space:nowrap;z-index:2}
+.evalbar.think .val{color:var(--dim)}
+/* How far the position has actually been read. It sits at the end of the bar
+   rather than beside the number, because it qualifies the number without
+   being part of it — and it goes quiet once the search has run out of things
+   to say, since a depth nobody is still climbing is not news. */
+.evalbar .dep{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  font-size:9.5px;letter-spacing:.08em;color:var(--text);opacity:.45;
+  z-index:2;pointer-events:none;font-variant-numeric:tabular-nums}
+.evalbar .dep.done{opacity:.24}
+
+
+/* controls */
+.ctl{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+button{font-family:var(--mono);font-size:12.5px;color:var(--text);
+  background:var(--panel);border:1px solid var(--line);border-radius:3px;
+  padding:7px 10px;cursor:pointer}
+button:hover{background:var(--panel-2);border-color:var(--gold-dim)}
+button:focus-visible,.sq:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+button.on{border-color:var(--gold);color:var(--gold)}
+button:disabled{opacity:.38;cursor:default}
+button:disabled:hover{background:var(--panel);border-color:var(--line)}
+/* step-through arrows: square-ish, so they read as a pair */
+.nav{padding:7px 12px;line-height:1;font-size:11px}
+
+/* rating pools — widen the sample when a position runs thin */
+/* The row itself does not wrap; the chips inside it do. Wrapping here was
+   what put the full-screen button on a line of its own on a phone: the chips
+   are one item, that item wanted the whole width, and anything after it had
+   nowhere left to be. Now the chips take what is left after the label and the
+   button, and fold within it. */
+.pools{display:flex;flex-wrap:nowrap;align-items:center;gap:5px;margin-top:8px}
+.plabel{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);
+  margin-right:3px;flex:none}
+.chips{display:flex;flex-wrap:wrap;gap:4px;flex:1 1 auto;min-width:0}
+.chip{font-size:11px;padding:4px 7px;color:var(--dim)}
+/* Not a pool, so it sits apart from the run of them — but only just. On a
+   phone the row of pools already fills the width, and anything wide here
+   takes a line of its own. */
+.chip.full{margin-left:6px;padding:4px 6px;line-height:0;flex:none;align-self:center}
+.chip.full svg{width:13px;height:13px;display:block}
+
+/* ===================== full screen =====================
+   The board takes the screen and holds the top of it while everything else
+   moves underneath. Written as a layout rather than as a call to the
+   Fullscreen API, because the phones this is for are the ones that will not
+   answer that call — iOS never has. Where the API does answer it is asked as
+   well, and the browser's own chrome goes with the title. */
+/* The page gives back the margin it was keeping for a title it is no longer
+   showing — at the top all of it, at the sides most of it. On a tablet those
+   two edges were the whole of the width the board was not using. */
+body.focus{padding:0 4px 40px}
+body.focus header{display:none}
+/* No padding on the sticky element: the arrows are an overlay pinned to its
+   edges, and padding would stretch their eight-by-eight grid off the squares.
+   The shadow does the separating instead. */
+body.focus .boardwrap{position:sticky;top:0;z-index:6;
+  background:var(--ink);box-shadow:0 7px 10px -7px rgba(0,0,0,.7)}
+/* Pinned has to mean pinned all the way down. A sticky element cannot outlive
+   the box it sits in, and the board's box ends where its own controls do —
+   so with the panel in a column beside it, scrolling past that point pushed
+   the board up and took the top rank off the screen with it. Which is also
+   why it looked like a move did it: a move changes how many lines the panel
+   has, and so where the scroll can reach.
+   Stretching the board's column to the height of the row beside it gives the
+   board something to stay stuck to for the whole scroll. The panel keeps its
+   own height, because it is a card and a stretched card is a long empty one.
+   A minimum rather than a height: a fixed one would put the bottom of the
+   box at the column's height while the content ran on past it, which ends
+   the stickiness early — the very thing being fixed. */
+body.focus .cols{align-items:stretch}
+body.focus .sidepanel{align-self:start}
+body.focus .boardcol>.stack{min-height:100%}
+/* room to breathe under a board that no longer scrolls away */
+body.focus .evalbar{margin-top:8px}
+body.focus .stack>.card:first-of-type{margin-top:10px}
+.chip.on{color:var(--gold);border-color:var(--gold)}
+.mini{font-size:11px;padding:4px 8px}
+
+/* cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:3px;
+  padding:13px 14px;margin-bottom:12px}
+/* the move list sits in the board column now, so it needs the gap above too */
+.stack > .card{margin-top:12px}
+.card h2{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--dim);font-weight:400;margin-bottom:11px;display:flex;
+  justify-content:space-between;align-items:center;gap:8px}
+.card h2 .amt{color:var(--gold);letter-spacing:.06em}
+.h2r{display:flex;align-items:center;gap:8px}
+/* The heading is the switch. It keeps the heading's own look rather than a
+   button's, because it is still the name of the card — it just answers when
+   you press it. The dotted rule under it is the only thing that says so. */
+.card h2 .swap{background:none;border:0;padding:0;font:inherit;color:inherit;
+  letter-spacing:inherit;text-transform:inherit;cursor:pointer;
+  border-bottom:1px dotted rgba(132,150,166,.5)}
+.card h2 .swap:hover{background:none;color:var(--text);border-bottom-color:var(--gold)}
+.card h2 .swap.on{color:var(--gold);border-bottom-color:var(--gold)}
+
+/* the game as a shape: one column per position, as high as White stood */
+.graph{position:relative;height:96px}
+.graph svg{display:block;width:100%;height:100%}
+/* Both sides are drawn on the card's own dark ground, so both have to be
+   lighter than it — which means Black's columns cannot be black. Painted the
+   dark of a black piece they came out at 1.2:1 against the card and were very
+   nearly not there at all. This slate stands at 4.7:1, and stays far enough
+   from White's near-white to be told apart on sight. Nothing is lost by it:
+   the two never share a side of the middle, so which is which is answered by
+   where the column is before its colour is looked at. */
+.graph .gw{fill:#e6e9ea}
+.graph .gb{fill:#7d92a4}
+/* a position the engine has not answered for — said, not smoothed over */
+.graph .gap{fill:rgba(132,150,166,.09)}
+.graph .gmid{stroke:rgba(227,167,47,.5);stroke-width:.4;vector-effect:non-scaling-stroke}
+.graph .gcur{fill:rgba(227,167,47,.22)}
+/* the columns are stretched by the viewBox, so what you point at is laid
+   over them at real size instead */
+.graph .hits{position:absolute;inset:0}
+.graph .hits i{position:absolute;top:0;bottom:0;cursor:pointer}
+.graph .hits i:hover{background:rgba(227,167,47,.16)}
+.graph .ob{color:var(--dim);font-size:13px}
+.toggle{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;
+  padding:3px 7px;color:var(--dim)}
+
+/* candidate move rows — clickable: a row is a move you can play right now */
+.mv{display:block;width:100%;text-align:left;background:none;border:0;border-radius:2px;
+  padding:6px 5px;margin:0 -5px;cursor:pointer}
+.mv:hover .san{color:var(--gold)}
+.mv+.mv{border-top:1px solid rgba(49,64,79,.6)}
+/* replies the coach is drawing from, when variety is on */
+.mv.inplay{box-shadow:inset 2px 0 0 rgba(227,167,47,.8)}
+.mv .top{display:flex;align-items:baseline;gap:8px}
+.mv .san{font-size:14.5px;min-width:52px}
+.mv .pct{font-size:13px;color:var(--gold);min-width:44px;text-align:right}
+.mv .n{font-size:10.5px;color:var(--dim);margin-left:auto}
+.mv.played .san{color:var(--gold)}
+.bar{display:flex;height:5px;border-radius:2px;overflow:hidden;margin-top:5px;background:var(--panel-2)}
+.bar i{display:block;transition:width .4s ease}
+.bar .bw{background:#e6e9ea}.bar .bd{background:#6b7d8a}.bar .bb{background:#2b3742}
+.freq{height:2px;background:var(--gold);opacity:.55;margin-top:4px;transition:width .4s ease}
+.legend{font-size:10px;color:var(--dim);margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:1px;margin-right:4px;vertical-align:-1px}
+.sw-w{background:#e6e9ea}.sw-d{background:#6b7d8a}.sw-b{background:#2b3742}
+.sw-you{background:linear-gradient(90deg,hsl(0,55%,42%),hsl(60,55%,42%),hsl(120,55%,42%))}
+
+/* the crowd an answer came from, when the explorer had to reach past yours */
+.reach{font-size:11px;color:var(--dim);margin-bottom:9px;line-height:1.45}
+.reach b{color:var(--gold);font-weight:400}
+
+/* the nudge that appears when the selected pools barely cover a position */
+.thin{margin-top:10px;font-size:11px;color:var(--dim)}
+.link{background:none;border:0;padding:0;font-size:11px;color:var(--gold);
+  text-decoration:underline;cursor:pointer}
+.link:hover{background:none;border:0;color:var(--text)}
+
+/* moves list */
+.moves{position:relative;font-size:13px;max-height:190px;
+  overflow-y:auto;overflow-x:hidden;line-height:1.9}
+.moves .no{color:var(--dim);margin-right:5px}
+/* nowrap keeps castling ("O-O") from breaking across lines at its hyphen */
+.moves b{font-weight:400;margin-right:7px;white-space:nowrap}
+/* the review cursor, then the two half-moves the board is lighting up */
+.moves b.cur{color:var(--gold);background:rgba(227,167,47,.16);border-radius:2px;
+  padding:0 4px;margin:0 3px 0 -4px;box-shadow:inset 0 0 0 1px rgba(227,167,47,.5)}
+.moves b.recent{background:rgba(247,247,105,.15);border-radius:2px;padding:0 4px;margin:0 3px 0 -4px}
+.moves b.older{background:rgba(247,247,105,.07);border-radius:2px;padding:0 4px;margin:0 3px 0 -4px}
+.moves .ob{color:var(--dim)}
+/* a move is a place to go, not just something to read about */
+.moves b[data-ply]{cursor:pointer}
+
+/* move marks: only the notable ones are drawn, so a clean game stays clean */
+.moves b i{font-style:normal;font-size:11px;margin-left:1px;vertical-align:.08em}
+.r-brill i{color:var(--teal)}
+.r-great i{color:#7fb069}
+.r-inacc i{color:var(--gold)}
+.r-mist  i{color:#e0873f}
+.r-blun  i{color:#d6483c}
+
+/* the move tooltip */
+.tip{position:fixed;z-index:20;max-width:270px;pointer-events:none;
+  background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--gold);
+  border-radius:3px;padding:9px 11px;font-size:11px;line-height:1.5;
+  box-shadow:0 6px 20px rgba(0,0,0,.45)}
+.t-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  border-bottom:1px solid var(--line);padding-bottom:5px;margin-bottom:6px}
+.t-san{font-size:13px;color:var(--text)}
+.t-rate{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.t-rate.r-brill{color:var(--teal)}
+.t-rate.r-great{color:#7fb069}
+.t-rate.r-inacc{color:var(--gold)}
+.t-rate.r-mist{color:#e0873f}
+.t-rate.r-blun{color:#d6483c}
+.t-row{display:flex;justify-content:space-between;gap:12px;color:var(--dim)}
+.t-row span:last-child{color:var(--text);white-space:nowrap}
+.t-note{margin-top:6px;padding-top:5px;border-top:1px solid var(--line);color:var(--dim)}
+
+/* status */
+.note{font-size:12px;color:var(--dim);min-height:1.4em}
+#note{margin-top:11px}
+.note b{color:var(--text);font-weight:400}
+.note .hot{color:var(--gold)}
+.warn{border-left:2px solid var(--gold-dim);padding-left:9px;color:var(--dim);font-size:11.5px;margin-top:10px}
+
+/* debug panel — only ever built when ?debug asked for it. Pinned to the
+   bottom of the window rather than laid into the page, so switching it on
+   cannot move a single thing the app is being watched for. */
+body.debugging{padding-bottom:42vh}    /* so the panel covers nothing you cannot scroll to */
+.dbg{position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:38vh;display:flex;flex-direction:column;
+  background:rgba(20,27,36,.96);border-top:1px solid var(--line);
+  font-family:var(--mono);font-size:11px;color:var(--dim)}
+.dbg.min{max-height:none}
+.dbg.min #dbgout{display:none}
+.dbghead{display:flex;align-items:center;gap:10px;padding:6px 10px;border-bottom:1px solid var(--line)}
+.dbg.min .dbghead{border-bottom:0}
+.dbghead b{color:var(--gold);font-weight:400;letter-spacing:.14em;text-transform:uppercase;font-size:10px}
+.dbghead #dbgeng{flex:1;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dbghead button{padding:3px 8px;font-size:11px}
+.dbg pre{margin:0;padding:8px 10px;overflow:auto;white-space:pre-wrap;line-height:1.45}
+
+/* promotion */
+/* A key press has no button lighting up under the finger to say it landed, and
+   the toolbar that did change is nowhere near where you are looking. So the
+   board answers instead: the same words the button carries, over the middle of
+   it, gone in a second. It never takes a click and never moves anything. */
+.flash{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  z-index:6;pointer-events:none;opacity:0;
+  background:rgba(20,27,36,.86);color:var(--gold);
+  border:1px solid var(--gold-dim);border-radius:3px;
+  padding:9px 16px;font-family:var(--mono);font-size:13.5px;
+  letter-spacing:.14em;text-transform:uppercase;white-space:nowrap;
+  box-shadow:0 4px 18px rgba(0,0,0,.45);
+  transition:opacity .26s ease}
+.flash.show{opacity:1;transition:opacity .08s ease}
+
+.promo{position:absolute;inset:0;background:rgba(20,27,36,.86);display:none;
+  align-items:center;justify-content:center;gap:8px;z-index:5}
+.promo.show{display:flex}
+.promo button{padding:6px;background:var(--panel);line-height:0}
+.promo .pc{position:static;width:calc(var(--sq) * .82);height:calc(var(--sq) * .82)}
+
+/* ============================================================
+   Wide screens only. Everything above is sized for a phone held in
+   one hand and stays exactly as it is; this block spends the room a
+   desktop has on the two things you actually read — the board, which
+   grows in sizeBoard(), and the type, which grows here. The query is
+   the complement of the stacking breakpoint, so a layout is never
+   half-phone and half-desktop.
+   ============================================================ */
+@media(min-width:861px){
+  body{font-size:15px}
+  h1{font-size:25px}
+  button{font-size:13px}
+  .nav{font-size:12px}
+  .chip,.mini{font-size:12px;padding:5px 9px}
+
+  .evalbar{height:30px}
+  .evalbar .val{font-size:14.4px}
+
+  .card{padding:15px 16px}
+  .card h2{font-size:11px}
+  .moves{font-size:14.5px;max-height:240px}
+  .moves b i{font-size:12px}
+
+  /* the explorer rows are the panel's whole reason for existing */
+  .mv{padding:8px 5px}
+  .mv .san{font-size:16.5px;min-width:58px}
+  .mv .pct{font-size:14.5px;min-width:50px}
+  .mv .n{font-size:11.5px}
+  .reach{font-size:12px}
+  .bar{height:6px}
+  .freq{height:3px}
+  .legend{font-size:11px}
+
+  .ribbon{padding:14px 16px}
+  .ribbon .eco{font-size:11px}
+  .ribbon .name{font-size:22px}
+  .ribbon .sub{font-size:12.5px}
+
+  .note{font-size:13px}
+  .warn{font-size:12.5px}
+  .tip{max-width:300px;font-size:12px}
+  .t-san{font-size:14px}
+}
+
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}

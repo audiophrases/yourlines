@@ -3,13 +3,15 @@
 // yourlines — which triggers .github/workflows/deploy.yml and goes live at
 // https://audiophrases.github.io/yourlines/ within about a minute.
 //
-// Usage: node scripts/deploy.mjs [--app <play|gym|review|puzzles>]
+// Usage: node scripts/deploy.mjs [--app <play|gym|review|puzzles|spar>]
 // The --app form is what each sub-app's own deploy.bat passes, so running it
 // from e.g. yourchesspuzzles takes that repo's changes all the way to the
 // live suite in one step. Run with no --app (yourlines/deploy.bat) to just
 // sync+build+push yourlines itself (e.g. after editing the hub's own src/).
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { suiteApps } from './suite-apps.mjs';
@@ -170,19 +172,41 @@ function main() {
     }
     return checked;
   }
+  // A sub-app's JavaScript is just as unchecked when it sits in its own file,
+  // and for most of them that file is the whole app. `node --check` picks
+  // script or module parsing off the extension, so anything that imports or
+  // exports goes through a temporary .mjs copy — parsing a module as a script
+  // fails on the very first line, and parsing a script as a module would fail
+  // it for sloppy-mode constructs that are perfectly legal where it runs.
+  const MODULE_RE = /^\s*(?:import|export)[\s({*'"]/m;
+  function checkJsFile(path, label) {
+    const code = readFileSync(path, 'utf8');
+    let target = path;
+    let tmp = null;
+    if (MODULE_RE.test(code) && !path.endsWith('.mjs')) {
+      tmp = join(tmpdir(), `suite-check-${randomUUID()}.mjs`);
+      writeFileSync(tmp, code);
+      target = tmp;
+    }
+    let ok = true;
+    try {
+      run('node', ['--check', target], repoRoot);
+    } catch {
+      ok = false;
+    }
+    if (tmp) rmSync(tmp, { force: true });
+    if (!ok) die(`Syntax error in ${path}. Nothing was committed or pushed.`);
+    console.log(`  ${label}: OK`);
+  }
   for (const app of APPS) {
     const indexPath = join(repoRoot, 'public', app.name, 'index.html');
     if (!existsSync(indexPath)) continue;
     const n = checkInlineScripts(indexPath);
     console.log(`  ${app.title}: ${n} inline script block(s) OK`);
-  }
-  const gymAppJs = join(repoRoot, 'public', 'gym', 'app.js');
-  if (existsSync(gymAppJs)) {
-    try {
-      run('node', ['--check', gymAppJs], repoRoot);
-      console.log('  ChessGym app.js: OK');
-    } catch {
-      die(`Syntax error in ${gymAppJs}. Nothing was committed or pushed.`);
+    for (const entry of app.include) {
+      if (!entry.endsWith('.js')) continue;
+      const path = join(repoRoot, 'public', app.name, entry);
+      if (existsSync(path)) checkJsFile(path, `  ${app.title} ${entry}`);
     }
   }
 

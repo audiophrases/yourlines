@@ -6,20 +6,32 @@ pinpoint where you drift off.
 
 yourlines is also the hub of a **chess suite** served from one origin:
 
-| URL        | App                                                       |
-| ---------- | --------------------------------------------------------- |
-| `/`        | **Lines** — this app (opening explorer + weak spots)      |
-| `/play/`   | **Play** — Chess Interface (analysis board, play vs SF)   |
-| `/gym/`    | **Gym** — ChessGym (opening line drills)                  |
-| `/review/` | **Review** — Chess Reviewer (game review, move classify)  |
+| URL         | App                                                        |
+| ----------- | ---------------------------------------------------------- |
+| `/`         | **Lines** — this app (opening explorer + weak spots)       |
+| `/play/`    | **Play** — Chess Interface (analysis board, play vs SF)    |
+| `/spar/`    | **Spar** — Sparring Coach (play on against a human-like opponent) |
+| `/gym/`     | **Gym** — ChessGym (opening line drills)                   |
+| `/review/`  | **Review** — Chess Reviewer (game review, move classify)   |
+| `/puzzles/` | **Puzzles** — Your Chess Puzzles (built from your own losses) |
 
-The three sub-apps live in their own repos and are snapshotted in with
-`npm run sync-apps` (see `scripts/sync-apps.mjs` — it copies from the sibling
-folders `../stockfish`, `../ChessGym`, `../ChessMoveReviewer` and injects the
-floating suite switcher `public/suite/nav.js` into each). After changing a
-sub-app, run the sync and commit here. One origin means all apps can share
-browser storage — the basis for coming cross-app features (shared profiles,
-"review this game", "train this line").
+Each sub-app lives in its own repo and is snapshotted in with
+`npm run sync-apps` (see `scripts/sync-apps.mjs`, which reads the registry in
+`scripts/suite-apps.mjs` — one entry per app, naming the sibling folder it
+comes from — and injects the floating suite switcher `public/suite/nav.js`
+into each). After changing a sub-app, run the sync and commit here, or use
+that app's own `deploy.bat`, which does the whole thing in one step. One
+origin means all apps can share browser storage — the basis for the cross-app
+features (shared profiles, "review this game", "train this line").
+
+### Carrying the board between apps
+
+The switcher does more than link: an app that exposes
+`window.SuiteBoardContext()` (returning `{pgn}` and/or `{fen}`) hands the
+position you are looking at to whichever app you jump to. **Play** opens it on
+the analysis board, **Spar** picks the game up and plays on from it with you on
+the side to move, **Lines** shows how your own games handled it, and **Gym**
+looks for trainer lines that match.
 
 ![landing](docs/landing.png)
 

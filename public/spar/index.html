@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>the Sparring Coach — plays what humans play</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js" defer></script>
+<script src="sounds.js" defer></script>
+<script src="app.js" defer></script>
+<script type="module" src="sync.js"></script>
+  <script src="../suite/nav.js" defer></script>
+  <script src="../suite/bridge.js" defer></script>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1><span class="the">the</span> Sparring <em>Coach</em></h1>
+  <div class="tag">plays what humans play</div>
+  <div class="acct">
+    <span class="who" id="rec" hidden></span>
+    <span class="who" id="who" hidden></span>
+    <button type="button" id="signin" title="Google sign-in — your record against each line follows you to any device">Sign in — sync</button>
+  </div>
+</header>
+
+<div class="cols" id="cols">
+  <div class="boardcol">
+    <div class="stack">
+      <div class="boardwrap">
+        <div class="board" id="board"></div>
+        <svg class="arrows" id="arrows" viewBox="0 0 8 8" aria-hidden="true"></svg>
+        <div class="promo" id="promo"></div>
+        <div class="flash" id="flash" role="status" aria-live="polite"></div>
+      </div>
+
+      <div class="evalbar" id="evalbar" tabindex="0" aria-label="Engine evaluation, from White's point of view">
+        <i class="w" id="evalw"></i>
+        <i class="b" id="evalb"></i>
+        <span class="val" id="evaltxt">0.0</span>
+        <span class="dep" id="evaldep"></span>
+      </div>
+
+      <div class="card">
+        <h2><button type="button" class="ttl swap" id="gameswap" aria-controls="moves graph" title="The same game two ways: the moves as they were written, or what the engine made of every position along the way.">Game</button><span class="amt" id="depth"></span></h2>
+        <div class="moves" id="moves"><span class="ob">No moves yet.</span></div>
+        <div class="graph" id="graph" hidden></div>
+      </div>
+
+      <div class="ribbon" id="ribbon">
+        <div class="eco" id="eco">Opening</div>
+        <div class="name" id="oname">Starting position</div>
+        <div class="sub" id="osub">Make a move to begin.</div>
+      </div>
+
+      <div class="ctl">
+        <button type="button" id="newg">New game</button>
+        <button type="button" id="prev" class="nav" aria-label="Previous move" title="Step back through the game (←). Play a move from an earlier position and the game carries on from there.">◀</button>
+        <button type="button" id="next" class="nav" aria-label="Next move" title="Step forward through the game (→)">▶</button>
+        <button type="button" id="flip" title="F — turn the board round. The colour at the bottom is the one you play, so this hands the other side to the coach.">Flip</button>
+        <button type="button" id="coach" class="on" title="C — cycles On, Weakest, Off. On: the coach plays the crowd's reply. Weakest: it plays the book reply your record says you struggle with most. Off: you move both sides.">Coach: On</button>
+        <button type="button" id="vary" title="V — off, the coach always plays the most popular reply. On, it varies between the replies that are genuinely popular.">Variety: Off</button>
+        <button type="button" id="best" title="B — cycles Once, On, Off. A deeper reading of the position behind the bar: four plies, in place of the two every move gets. Once lasts this position only; On stays until you turn it off.">Best: Off</button>
+        <button type="button" id="won" title="W — score the line on the board as a win, without playing it out. Every database reply in it goes greener.">Won</button>
+        <button type="button" id="lost" title="L — score the line on the board as a loss, without playing it out. Every database reply in it goes redder.">Lost</button>
+        <button type="button" id="undo" title="U — take back the last result you recorded" hidden>Undo</button>
+        <button type="button" id="peek" title="Bring the right-hand panel back" hidden>Show panel</button>
+        <button type="button" id="tok" title="The opening database needs a free Lichess token" hidden>Lichess token</button>
+      </div>
+
+      <div class="pools">
+        <span class="plabel" title="The crowd the coach copies. Each band is keyed on the average of the two players' ratings, so 1400 means games where the pair averaged 1400–1599.">Pools</span>
+        <span class="chips" id="chips"></span>
+        <button type="button" id="full" class="chip full" aria-label="Full screen" title="Give the board the screen: the title goes, the board holds the top, and everything else scrolls under it. Made for a phone or a tablet."></button>
+      </div>
+
+      <div class="note" id="note"></div>
+      <div class="warn" id="offline" hidden></div>
+      <div class="warn" id="engwarn" hidden></div>
+    </div>
+  </div>
+
+  <div class="sidepanel" id="sidepanel">
+    <div class="card">
+      <h2>
+        <span class="ttl">Human choices here</span>
+        <span class="h2r">
+          <span class="amt" id="poptot"></span>
+          <button type="button" class="toggle" id="candtoggle" aria-controls="cands" aria-expanded="true">Hide</button>
+        </span>
+      </h2>
+      <div id="cands" class="note">Waiting for the position…</div>
+      <div class="legend" id="legend" hidden>
+        <span><i class="sw-w"></i>White wins</span>
+        <span><i class="sw-d"></i>Draw</span>
+        <span><i class="sw-b"></i>Black wins</span>
+        <span><i class="sw-you"></i>row tint: your record vs that move</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+</body>
+</html>
