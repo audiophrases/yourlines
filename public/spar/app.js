@@ -353,6 +353,12 @@ const cssPx = n => parseFloat(getComputedStyle(document.documentElement).getProp
    never disagree about which layout is on screen */
 const narrow = window.matchMedia("(max-width:860px)");
 let boardSize = 0;
+/* The suite's bar sits above the page when this app is served inside the
+   suite, and is simply not there when it is served on its own. */
+function suiteBarHeight(){
+  const bar = document.getElementById("yl-suite-nav");
+  return bar ? bar.getBoundingClientRect().height : 0;
+}
 function sizeBoard(){
   /* Measured off the body, which is the widest thing in the page that the
      board does not size: the wrap and the board's own column are both derived
@@ -362,7 +368,12 @@ function sizeBoard(){
   const room = document.body.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
   const beside = (narrow.matches || !panelOpen) ? 0 : cssPx("--panelw") + cssPx("--colgap");
   /* the header is part of that reserve, and in full screen there is no header */
-  const chrome = (narrow.matches ? CHROME_STACKED : CHROME_WIDE) - (focusMode ? HEADER_H : 0);
+  const chrome = (narrow.matches ? CHROME_STACKED : CHROME_WIDE) - (focusMode ? HEADER_H : 0)
+    /* Inside the suite there is a bar above all of this taking real room in
+       the page, and it is not in any of the constants above. Measured rather
+       than named, because it is another app's and it goes away in full
+       screen, where it measures zero on its own. */
+    + suiteBarHeight();
   const fitsHeight = Math.max(280, window.innerHeight - chrome);
   /* Pinned to the top of a phone, a board sized to the whole viewport would
      leave nothing underneath it to scroll — the mode would be a board and a

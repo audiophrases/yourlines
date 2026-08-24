@@ -1,6 +1,21 @@
-// yourlines suite — floating app switcher, injected into every app in the
-// suite. Self-contained (no dependencies, inline styles) so it can't clash
-// with each app's own CSS/layout. Collapsible; remembers state per browser.
+// yourlines suite — the shared app bar, carried by every app in the suite.
+//
+// A full-width strip across the top of the window, above whatever the app
+// puts at the top of itself. It used to be a pill floating over the top-right
+// corner, which is where several of these apps keep something of their own, so
+// it spent its time dodging them; a bar with room of its own has nothing to
+// dodge. It also gives every app the same full-screen control, and takes
+// itself off the screen while that is on.
+//
+// It is pinned rather than laid out in the page, and the room it takes is
+// given back as padding on the document element. Putting it in the flow means
+// putting it inside the app's own body, and two of these apps make that body
+// a flex container: dropped into the Chess Interface, which centres a flex
+// row, the bar became a column and pushed the board off the side of the
+// window. <html> is out of reach of whatever the body is doing.
+//
+// Self-contained — no dependencies, inline styles — so it cannot clash with
+// each app's own CSS.
 (function () {
   'use strict';
   if (document.getElementById('yl-suite-nav')) return;
@@ -37,25 +52,6 @@
     if (rel.indexOf('puzzles/') === 0) return 'puzzles';
     return 'lines';
   }
-
-  var LS_KEY = 'yourlines:suite-nav';
-  var collapsed = false;
-  try {
-    collapsed = localStorage.getItem(LS_KEY) === 'collapsed';
-  } catch (e) {}
-  /* Shut because there is nowhere to open into is not the same thing as shut
-     because you asked, so it is kept apart: never stored, and a tap on the
-     toggle overrules it. */
-  var squeezed = false;
-
-  var host = document.createElement('div');
-  host.id = 'yl-suite-nav';
-  host.style.cssText =
-    'position:fixed;top:10px;right:10px;z-index:2147483000;display:flex;align-items:center;gap:2px;' +
-    'background:rgba(15,17,23,0.92);border:1px solid #363c52;border-radius:999px;padding:3px;' +
-    'font:12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 8px 24px -8px rgba(0,0,0,0.6);' +
-    'backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);user-select:none;' +
-    'max-width:calc(100vw - 20px);';
 
   var active = currentApp();
 
@@ -121,25 +117,41 @@
     }
   }
 
+  // ---- the bar ---------------------------------------------------------
+  var bar = document.createElement('nav');
+  bar.id = 'yl-suite-nav';
+  bar.setAttribute('aria-label', 'Chess suite');
+  bar.style.cssText =
+    'position:fixed;top:0;left:0;right:0;width:100%;box-sizing:border-box;z-index:2147483000;' +
+    'display:flex;align-items:center;gap:2px;' +
+    'padding:6px 10px;background:#0f1117;border-bottom:1px solid #262b3d;' +
+    'font:12px/1 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;' +
+    'user-select:none;overflow:hidden;';
+
+  var links = [];
+
   function makeItem(app) {
     var a = document.createElement('a');
     a.href = app.href;
-    a.textContent = app.icon + ' ' + app.label;
-    a.title = app.label;
+    a.setAttribute('data-app', app.id);
     var isActive = app.id === active;
+    a.title = isActive ? app.label : CONTEXT_TITLES[app.id] || 'Open ' + app.label;
+    var icon = document.createElement('span');
+    icon.textContent = app.icon;
+    icon.setAttribute('aria-hidden', 'true');
+    var text = document.createElement('span');
+    text.textContent = app.label;
+    a.appendChild(icon);
+    a.appendChild(text);
+    a.style.cssText =
+      'display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:7px;flex:0 0 auto;' +
+      'text-decoration:none;white-space:nowrap;' +
+      (isActive ? 'background:rgba(242,181,68,0.18);color:#f2b544;font-weight:600;' : 'color:#aab2c8;');
     if (!isActive) {
-      a.title = CONTEXT_TITLES[app.id] || ('Open ' + app.label + ' in its own tab');
       a.addEventListener('click', function (e) {
         e.preventDefault();
         openSuiteTab(hrefWithContext(app), app.id);
       });
-    }
-    a.style.cssText =
-      'display:inline-block;padding:5px 10px;border-radius:999px;text-decoration:none;white-space:nowrap;' +
-      (isActive
-        ? 'background:rgba(242,181,68,0.18);color:#f2b544;font-weight:600;'
-        : 'color:#aab2c8;');
-    if (!isActive) {
       a.onmouseenter = function () {
         a.style.color = '#eef1f8';
         a.style.background = 'rgba(255,255,255,0.06)';
@@ -149,168 +161,121 @@
         a.style.background = 'transparent';
       };
     }
+    links.push({ el: a, text: text });
     return a;
   }
 
-  var items = document.createElement('div');
-  items.style.cssText = 'display:flex;align-items:center;gap:2px;flex-wrap:wrap;justify-content:flex-end;';
-  for (var i = 0; i < APPS.length; i++) items.appendChild(makeItem(APPS[i]));
+  for (var i = 0; i < APPS.length; i++) bar.appendChild(makeItem(APPS[i]));
 
-  var toggle = document.createElement('button');
-  toggle.type = 'button';
-  toggle.setAttribute('aria-label', 'Toggle suite navigation');
-  toggle.style.cssText =
-    'border:0;background:transparent;color:#6b7290;cursor:pointer;padding:5px 8px;border-radius:999px;font:inherit;';
+  // ---- full screen, for every app --------------------------------------
+  var full = document.createElement('button');
+  full.type = 'button';
+  full.textContent = '⛶';
+  full.title = 'Full screen — give the board the whole window (Esc to come back)';
+  full.setAttribute('aria-label', 'Full screen');
+  full.style.cssText =
+    'margin-left:auto;border:0;background:transparent;color:#6b7290;cursor:pointer;' +
+    'padding:5px 9px;border-radius:7px;font:inherit;font-size:15px;line-height:1;flex:0 0 auto;';
+  full.onmouseenter = function () {
+    full.style.color = '#eef1f8';
+    full.style.background = 'rgba(255,255,255,0.06)';
+  };
+  full.onmouseleave = function () {
+    full.style.color = '#6b7290';
+    full.style.background = 'transparent';
+  };
+  bar.appendChild(full);
 
-  function shut() {
-    return collapsed || squeezed;
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
   }
 
-  function render() {
-    var closed = shut();
-    items.style.display = closed ? 'none' : 'flex';
-    toggle.textContent = closed ? '♞' : '×';
-    toggle.title = closed ? 'Open suite navigation' : 'Collapse';
-    if (closed) {
-      toggle.style.color = '#f2b544';
-      toggle.style.fontSize = '15px';
-    } else {
-      toggle.style.color = '#6b7290';
-      toggle.style.fontSize = '12px';
-    }
-  }
-
-  toggle.onclick = function () {
-    collapsed = !shut();
-    squeezed = false;          // asking outranks anything measured
+  full.onclick = function () {
     try {
-      localStorage.setItem(LS_KEY, collapsed ? 'collapsed' : 'open');
-    } catch (e) {}
-    render();
-  };
-
-  host.appendChild(items);
-  host.appendChild(toggle);
-  render();
-
-  /* ---- staying out of the host app's way ----
-     The pill is fixed to the top-right corner, which is exactly where several
-     of these apps keep something of their own: ChessGym's admin drawer, and
-     the sign-in button in the Puzzles and Sparring Coach headers. Which app
-     puts what there is a fact about the app rather than about the switcher —
-     but the switcher is the guest here, so it does the adapting and the apps
-     carry nothing about it.
-
-     A drawer that is fixed, resizable and collapsible is followed as it
-     changes. A header that simply scrolls away with the page is measured and
-     parked to the left of, with no scroll listener: scrolling moves it up and
-     down, and all the pill needs to know is where its left edge is. */
-  var HOST_CHROME = {
-    gym: '.admin-panel',
-    puzzles: 'header .acct',
-    spar: 'header .acct',
-  };
-
-  var GAP = 10;
-  var MIN_ROOM = 46;    // the collapsed pill's own width, and never less
-  var TOGGLE = 34;      // and what the toggle beside the row takes up
-
-  /* A pill is one row. Rather than guess at the width where that stops being
-     possible, ask: laid out with no wrapping and free to be as wide as it
-     likes, this is what the row wants. It cannot change afterwards — the six
-     apps are fixed — so it is measured once and kept. */
-  var rowWidth = 0;
-  function wantsWidth() {
-    if (rowWidth) return rowWidth;
-    var display = items.style.display, wrap = items.style.flexWrap, width = items.style.width;
-    items.style.display = 'flex';
-    items.style.flexWrap = 'nowrap';
-    items.style.width = 'max-content';
-    rowWidth = Math.ceil(items.getBoundingClientRect().width);
-    items.style.display = display;
-    items.style.flexWrap = wrap;
-    items.style.width = width;
-    return rowWidth;
-  }
-
-  /* Sizing and placing the pill: clear of whatever the app keeps in the
-     corner, clear of the edge of the screen, and folded away when the row
-     will not fit. Every app runs this — the ones with nothing to dodge still
-     have a screen width to fit inside. */
-  function keepClear() {
-    var selector = HOST_CHROME[active];
-    var chrome = selector ? document.querySelector(selector) : null;
-    // Called again once the host app has finished building itself, by which
-    // time its corner may have moved: measure again rather than bail out.
-    if (host.__reposition) return host.__reposition();
-    var fixed = !!chrome && getComputedStyle(chrome).position === 'fixed';
-
-    var reposition = function () {
-      var right = GAP;
-      if (chrome) {
-        var rect = chrome.getBoundingClientRect();
-        var shown = rect.width > 0 && rect.height > 0 && getComputedStyle(chrome).display !== 'none';
-        // Measured where it sits with the page scrolled to the top, which is
-        // the only place the pill can actually run into it.
-        var top = fixed ? rect.top : rect.top + (window.scrollY || 0);
-        var mine = host.getBoundingClientRect();
-        if (shown && top < mine.bottom && top + rect.height > mine.top) {
-          right = Math.max(GAP, window.innerWidth - rect.left + GAP);
-        }
+      if (fullscreenElement()) {
+        var exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) exit.call(document);
+        return;
       }
-      // However little is left over, the pill keeps enough to be its own
-      // handle: squeezed past this it would be neither readable nor tappable,
-      // which is worse than sitting on the corner of something.
-      right = Math.min(right, Math.max(GAP, window.innerWidth - MIN_ROOM - GAP));
-      var room = window.innerWidth - right - GAP;
-      host.style.right = right + 'px';
-      host.style.maxWidth = room + 'px';
-      // A pill is one row. Where the row will not go on one, it folds away
-      // rather than stacking itself over the header it just moved out of —
-      // the toggle is the way back, and asking that way clears this.
-      squeezed = room < wantsWidth() + TOGGLE + GAP;
-      render();
-      /* A fixed offset is resolved against the nearest ancestor carrying a
-         transform or a containment, which is not always the viewport — a
-         couple of these apps grow one at phone widths. So the offset asked
-         for is not always the offset given: measure what landed and correct
-         for the difference, once, with the row already laid out again. */
-      var landed = host.getBoundingClientRect();
-      var drift = landed.right - (window.innerWidth - right);
-      if (Math.abs(drift) > 1) host.style.right = right + drift + 'px';
-    };
+      var el = document.documentElement;
+      var req = el.requestFullscreen || el.webkitRequestFullscreen;
+      // The promise rejects when the browser refuses (an iframe without the
+      // permission, a policy) — nothing to do but not crash on it.
+      if (req) {
+        var r = req.call(el);
+        if (r && r.catch) r.catch(function () {});
+      }
+    } catch (e) {}
+  };
 
-    host.__reposition = reposition;
-    reposition();
-    window.addEventListener('resize', reposition);
-    if (!chrome) return;
-    if (typeof ResizeObserver === 'function') new ResizeObserver(reposition).observe(chrome);
-    if (fixed) {
-      new MutationObserver(reposition).observe(chrome, {
-        attributes: true,
-        attributeFilter: ['class', 'style'],
-      });
-    }
-  }
-
-  /* ---- and getting out of the way altogether ----
-     An app that hands the board the whole screen has said what it wants the
-     screen for, and a pill floating over the corner of it is the one thing
-     nobody asked for. The browser's own fullscreen counts wherever it is
-     used; an app that clears its own chrome without going native says so
-     with a class, and is watched for it. */
+  /* An app that clears its own chrome without going native says so with a
+     class, and the bar goes for that too — the Sparring Coach falls back to
+     one when the browser refuses fullscreen. */
   var HOST_IMMERSIVE = {
     spar: 'body.focus',
   };
 
   function immersive() {
-    if (document.fullscreenElement || document.webkitFullscreenElement) return true;
+    if (fullscreenElement()) return true;
     var selector = HOST_IMMERSIVE[active];
     return !!(selector && document.querySelector(selector));
   }
 
-  function syncVisibility() {
-    host.style.display = immersive() ? 'none' : 'flex';
+  function syncFullscreen() {
+    bar.style.display = immersive() ? 'none' : 'flex';
+  }
+
+  /* The room the bar takes, given back above the app so nothing of it ends
+     up underneath. On <html> rather than <body>, which the app may well have
+     made a flex container — see the note at the top. Measured rather than
+     assumed, since the bar is a row of text and its height follows whatever
+     the browser makes of that. */
+  function reserveRoom() {
+    var h = immersive() ? 0 : Math.round(bar.getBoundingClientRect().height);
+    document.documentElement.style.paddingTop = h + 'px';
+  }
+
+  /* Six labels do not fit across a phone, and there is no folding this away
+     to make them — so the labels go and the icons stay, which fits anywhere
+     and keeps every app one tap from every other. Each link keeps its title,
+     so the name is still there to be read. */
+  function fitLabels() {
+    var i;
+    for (i = 0; i < links.length; i++) links[i].text.style.display = '';
+    if (bar.scrollWidth <= bar.clientWidth) return;
+    for (i = 0; i < links.length; i++) links[i].text.style.display = 'none';
+  }
+
+  function relayout() {
+    /* The width of the window, which is not always the width the bar would
+       inherit: an app that reserves a stable scrollbar gutter makes the
+       containing block narrower than the window, and a bar stopping short of
+       the edge reads as a bug rather than as a gutter. Set before the labels
+       are fitted, since they are measured against it. */
+    bar.style.width = document.documentElement.clientWidth + 'px';
+    fitLabels();
+    reserveRoom();
+    shimHost();
+  }
+
+  /* A panel pinned to the top of the viewport does not know the bar is there
+     and would sit over it — ChessGym's admin drawer is one. Nudging it down
+     is a fact about that app, so it lives here with everything else the
+     switcher knows about its hosts, and the apps carry nothing about it. */
+  var HOST_SHIMS = {
+    gym: '.admin-panel { top: %Hpx; }',
+  };
+  var shimStyle = null;
+
+  function shimHost() {
+    var rule = HOST_SHIMS[active];
+    if (!rule) return;
+    if (!shimStyle) {
+      shimStyle = document.createElement('style');
+      document.head.appendChild(shimStyle);
+    }
+    var h = immersive() ? 0 : Math.round(bar.getBoundingClientRect().height);
+    shimStyle.textContent = rule.replace('%H', h);
   }
 
   function mount() {
@@ -318,19 +283,33 @@
       document.addEventListener('DOMContentLoaded', mount);
       return;
     }
-    document.body.appendChild(host);
-    // Host apps may build their UI after load — look again shortly.
-    keepClear();
-    setTimeout(keepClear, 1000);
-    syncVisibility();
-    document.addEventListener('fullscreenchange', syncVisibility);
-    document.addEventListener('webkitfullscreenchange', syncVisibility);
+    document.body.insertBefore(bar, document.body.firstChild);
+    syncFullscreen();
+    relayout();
+    window.addEventListener('resize', relayout);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
     if (HOST_IMMERSIVE[active]) {
-      new MutationObserver(syncVisibility).observe(document.body, {
+      new MutationObserver(onFullscreenChange).observe(document.body, {
         attributes: true,
         attributeFilter: ['class'],
       });
     }
+    // Host apps may still be building themselves — check the fit again once
+    // whatever they do to the body has settled.
+    setTimeout(relayout, 1000);
   }
+
+  function onFullscreenChange() {
+    syncFullscreen();
+    relayout();
+    /* Apps that size themselves off the window need to hear about the room
+       the bar just took or gave back; every one of them listens for a
+       resize, and the browser does not send one for this. */
+    try {
+      window.dispatchEvent(new Event('resize'));
+    } catch (e) {}
+  }
+
   mount();
 })();

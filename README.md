@@ -18,33 +18,38 @@ yourlines is also the hub of a **chess suite** served from one origin:
 Each sub-app lives in its own repo and is snapshotted in with
 `npm run sync-apps` (see `scripts/sync-apps.mjs`, which reads the registry in
 `scripts/suite-apps.mjs` — one entry per app, naming the sibling folder it
-comes from — and injects the floating suite switcher `public/suite/nav.js`
-into each). After changing a sub-app, run the sync and commit here, or use
+comes from — and injects the shared suite bar `public/suite/nav.js` into
+each). After changing a sub-app, run the sync and commit here, or use
 that app's own `deploy.bat`, which does the whole thing in one step. One
 origin means all apps can share browser storage — the basis for the cross-app
 features (shared profiles, "review this game", "train this line").
 
 ### Carrying the board between apps
 
-There are two switchers, listing the same six apps. Lines builds its own into
-its header (`SuiteNav` in `src/App.tsx`), reading the line on the board
-straight out of the store. The vanilla sub-apps get the floating pill instead,
-injected by the sync — so the hub does not carry it, and adding it there would
-only give Lines two.
+One bar, carried by all six: a strip across the top of the window naming
+every app, with the current one lit. `public/suite/nav.js` builds it, the
+sync injects it into each sub-app, and the hub loads it directly from its own
+`index.html` — so there is one implementation and one place to add a seventh
+app.
 
-Either one does more than link: it hands the position you are looking at to
-whichever app you jump to. **Play** opens it on the analysis board, **Spar**
-picks the game up and plays on from it with you on the side to move, **Lines**
-shows how your own games handled it, and **Gym** looks for trainer lines that
-match. A sub-app joins in by exposing `window.SuiteBoardContext()`, returning
-`{pgn}` and/or `{fen}`.
+It does more than link: it hands the position you are looking at to whichever
+app you jump to. **Play** opens it on the analysis board, **Spar** picks the
+game up and plays on from it with you on the side to move, **Lines** shows how
+your own games handled it, and **Gym** looks for trainer lines that match. An
+app joins in by exposing `window.SuiteBoardContext()`, returning `{pgn}`
+and/or `{fen}`.
 
-The pill keeps out of whatever each app puts in its own top-right corner —
-ChessGym's admin drawer, the sign-in buttons in Puzzles and Spar — and folds
-down to a single toggle where there is no room for the row. It hides itself
-altogether while an app has the board full screen. Which app keeps what in
-that corner is listed in `public/suite/nav.js`; the apps carry nothing about
-the switcher.
+The bar also gives every app the same full-screen button, and takes itself off
+the screen while that is on — Esc brings both back.
+
+It is pinned to the window rather than laid out in the page, and the room it
+takes is handed back as padding on `<html>`. Putting it in the flow means
+putting it inside the app's own `<body>`, and not every app has one that will
+take it: the Chess Interface centres a flex row, where an in-flow bar became a
+column beside the board and pushed it off the side of the window. `<html>` is
+out of reach of whatever the body is doing. Where six labels will not fit
+across the window the labels go and the icons stay, so every app stays one tap
+from every other at any width.
 
 ![landing](docs/landing.png)
 

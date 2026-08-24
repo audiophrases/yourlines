@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { Chess } from 'chess.js';
 import { useStore, type Tab } from './store/useStore';
-import { withMoveNumbers } from './lib/chessUtil';
 import { fenToEpd } from './lib/openings';
 import { findNodeByEpd, MAX_PLY } from './lib/tree';
 import { filterByWindow } from './lib/timeFilter';
@@ -26,6 +25,34 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'weak', label: 'Weak spots' },
   { id: 'games', label: 'Games' },
 ];
+
+declare global {
+  interface Window {
+    SuiteBoardContext?: () => { pgn?: string; fen?: string };
+  }
+}
+
+/**
+ * The other half of the deep link below. The suite bar asks whichever app you
+ * are leaving for the position it is showing, so the board travels with you —
+ * into Play to analyse it, into Spar to play on from it. Read at the moment it
+ * is asked rather than kept in sync, since nothing else wants it. A line
+ * travels as a game; the starting position travels as neither, and the bar
+ * drops it.
+ */
+function installSuiteBoardContext() {
+  window.SuiteBoardContext = () => {
+    const { path, fen } = useStore.getState();
+    if (!path.length) return { fen };
+    try {
+      const c = new Chess();
+      for (const san of path) c.move(san);
+      return { pgn: c.pgn(), fen };
+    } catch {
+      return { fen };
+    }
+  };
+}
 
 /**
  * Reverse deep link: /?pgn= or /?moves= jumps to that line; /?fen= searches
@@ -114,65 +141,6 @@ function Logo() {
   );
 }
 
-const START_FEN_PREFIX = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
-
-/** Links to the other apps in the suite (synced into public/ by sync-apps).
- *  Each opens in its own reusable tab (target="yourlines-<app>") rather than
- *  navigating this Lines tab away — so switching apps never interrupts
- *  whatever is running here, and coming back to Lines finds it untouched. */
-function SuiteNav() {
-  const path = useStore((s) => s.path);
-  const fen = useStore((s) => s.fen);
-  // BASE_URL is '/' in dev and '/yourlines/' in the production build (see
-  // vite.config.ts), so these links work under a GitHub Pages sub-path too.
-  const base = import.meta.env.BASE_URL;
-
-  // Play and Spar take the board the same way, and the floating switcher the
-  // sub-apps carry sends it to them in the same shape: the line as a game
-  // where there is one, the position by itself where there is not, and
-  // neither for the starting position.
-  const boardHref = (app: string) =>
-    path.length
-      ? `${base}${app}/?pgn=${encodeURIComponent(withMoveNumbers(1, path))}`
-      : fen && !fen.startsWith(START_FEN_PREFIX)
-        ? `${base}${app}/?fen=${encodeURIComponent(fen)}`
-        : `${base}${app}/`;
-  const gymHref = path.length
-    ? `${base}gym/?lookup=${encodeURIComponent(path.join(' '))}`
-    : `${base}gym/`;
-
-  const apps = [
-    { label: 'Lines', href: base, active: true, title: undefined as string | undefined },
-    { label: 'Play', href: boardHref('play'), title: 'Open the analysis board with the current position' },
-    { label: 'Spar', href: boardHref('spar'), title: 'Carry on from the current position against the sparring coach' },
-    { label: 'Gym', href: gymHref, title: 'Find trainer lines matching the current position' },
-    { label: 'Review', href: `${base}review/`, title: undefined as string | undefined },
-    { label: 'Puzzles', href: `${base}puzzles/`, title: 'Play puzzles from your own lost games' },
-  ];
-  return (
-    <nav className="flex items-center gap-1 rounded-full border border-ink-700 bg-ink-850 p-0.5">
-      {apps.map((a) => (
-        // No rel="noopener" — these targets are always our own same-origin
-        // suite pages, and noopener would force a fresh tab every click
-        // instead of reusing the named one (target="yourlines-<app>").
-        <a
-          key={a.label}
-          href={a.href}
-          title={a.title}
-          target={a.active ? undefined : `yourlines-${a.label.toLowerCase()}`}
-          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
-            a.active
-              ? 'bg-amber/15 text-amber'
-              : 'text-mist-400 hover:bg-ink-700 hover:text-mist-100'
-          }`}
-        >
-          {a.label}
-        </a>
-      ))}
-    </nav>
-  );
-}
-
 export default function App() {
   const hasData = useStore((s) => s.repertoires != null);
   const hydrating = useStore((s) => s.hydrating);
@@ -182,6 +150,7 @@ export default function App() {
 
   // Restore a previous import from storage, then honor any deep link.
   useEffect(() => {
+    installSuiteBoardContext();
     void hydrate().then(consumeDeepLink);
   }, [hydrate]);
 
@@ -191,7 +160,6 @@ export default function App() {
         <header className="sticky top-0 z-10 border-b border-ink-800 bg-ink-950/70 backdrop-blur">
           <div className="mx-auto flex w-full max-w-[1400px] items-center gap-4 px-4 py-3">
             <Logo />
-            <SuiteNav />
             {hasData && (
               <div className="ml-auto w-full max-w-md">
                 <ImportBar compact />

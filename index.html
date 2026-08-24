@@ -5,6 +5,12 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>yourlines</title>
+    <!-- The same bar every sub-app carries, injected into those by
+         scripts/sync-apps.mjs and loaded here directly. Vite rewrites the
+         leading slash to the deployed base, and the script reads the suite
+         root back off its own src, so this works at / in dev and at
+         /yourlines/ in production. -->
+    <script src="/suite/nav.js" defer></script>
   </head>
   <body>
     <div id="root"></div>
