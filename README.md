@@ -39,8 +39,16 @@ your own games handled it, and **Gym** looks for trainer lines that match. An
 app joins in by exposing `window.SuiteBoardContext()`, returning `{pgn}`
 and/or `{fen}`.
 
-The bar also gives every app the same full-screen button, and takes itself off
-the screen while that is on — Esc brings both back.
+The bar also gives every app the same full-screen button, and full screen is
+for the board: the bar goes, and so does what each app keeps around the board
+that is not the board — its name, its account chip, the buttons that leave for
+somewhere else — with the board pulled up flush to the top of the window in
+every app. What acts on the position stays, so stepping between puzzles
+survives and simply moves under the board. Which app keeps what is listed in
+`public/suite/nav.js`; the apps carry nothing about the suite. An app with a
+full-screen mode of its own gets handed the job instead, since it knows more
+about what to do with the screen — the Sparring Coach pins its board and
+resizes it into the room that frees. Esc brings everything back.
 
 It is pinned to the window rather than laid out in the page, and the room it
 takes is handed back as padding on `<html>`. Putting it in the flow means

@@ -190,7 +190,22 @@
     return document.fullscreenElement || document.webkitFullscreenElement || null;
   }
 
+  /* An app with a full-screen mode of its own knows better than we do what
+     to do with the screen — the Sparring Coach pins its board, drops its
+     header and resizes the board into the room that frees — so where there is
+     one the button hands over to it instead of doing its own thing beside
+     it. */
+  var HOST_FULLSCREEN = {
+    spar: '#full',
+  };
+
   full.onclick = function () {
+    var ownSelector = HOST_FULLSCREEN[active];
+    var own = ownSelector && document.querySelector(ownSelector);
+    if (own) {
+      own.click();
+      return;
+    }
     try {
       if (fullscreenElement()) {
         var exit = document.exitFullscreen || document.webkitExitFullscreen;
@@ -225,6 +240,51 @@
     bar.style.display = immersive() ? 'none' : 'flex';
   }
 
+  /* Full screen is for the board. What each app keeps around it that is not
+     the board — its name, its account chip, the buttons that leave the screen
+     for somewhere else — goes while that is on, and comes back with it.
+     Listed here with everything else the bar knows about its hosts, so no app
+     carries anything about the suite.
+
+     What acts on the position stays: stepping between puzzles is not chrome.
+     Nothing is listed for Play, which has no such furniture, or for the
+     Sparring Coach, whose own full-screen mode already clears its own. */
+  var HOST_TRIM = {
+    lines: ['header'],
+    review: ['#app-header', '#yl-bridge-chip'],
+    puzzles: ['header.app', '#backSetup', '#counter', '#solvedCount', '#refreshBtn', '#latestBtn'],
+  };
+
+  /* And with the furniture gone the board should be the first thing in the
+     window, not sitting under the room an app reserved for a header that is
+     no longer there. Only the apps that reserve any are listed; the Sparring
+     Coach and ChessGym already come out flush. */
+  var HOST_FLUSH = {
+    play: 'body{padding-top:0 !important;}',
+    /* Stepping between puzzles survives the trim, and it lives in a row above
+       the board — so in full screen that row goes underneath it instead, and
+       the board is the first thing here as it is everywhere else. */
+    puzzles:
+      '.wrap{padding-top:0 !important;}' +
+      '#player{display:flex;flex-direction:column;}' +
+      '#player > .row{order:2;margin:12px 0 0 !important;}',
+    lines: 'main{padding-top:0 !important;}',
+    review: 'body{padding-top:0 !important;}',
+  };
+  var trimStyle = null;
+
+  function trimHost() {
+    var list = HOST_TRIM[active] || [];
+    if (!list.length && !HOST_FLUSH[active]) return;
+    if (!trimStyle) {
+      trimStyle = document.createElement('style');
+      document.head.appendChild(trimStyle);
+    }
+    trimStyle.textContent = immersive()
+      ? (list.length ? list.join(',') + '{display:none !important;}' : '') + (HOST_FLUSH[active] || '')
+      : '';
+  }
+
   /* The room the bar takes, given back above the app so nothing of it ends
      up underneath. On <html> rather than <body>, which the app may well have
      made a flex container — see the note at the top. Measured rather than
@@ -256,6 +316,7 @@
     fitLabels();
     reserveRoom();
     shimHost();
+    trimHost();
   }
 
   /* A panel pinned to the top of the viewport does not know the bar is there
