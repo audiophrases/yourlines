@@ -242,6 +242,10 @@
     var USER_KEY = 'ycp.lastuser.v1';
     var SORT_KEY = 'ycp.sort.v1';
     var REFRESH_KEY = 'ycp.lastrefresh.v1';
+    // How long the first build waits to hear from the cloud before scanning
+    // anyway. Only ever spent when sync.js cannot answer at all — signed out,
+    // blocked, or never loaded — since it says so as soon as it knows.
+    var CLOUD_WAIT_MS = 3000;
     // Where "Analyse in Play" points. Inside the yourlines suite our own path
     // (…/puzzles/…) gives away where its sibling lives, so the link stays on
     // whatever origin the suite was served from — localhost or the project
@@ -366,6 +370,28 @@
     function saveLastUser() { try { localStorage.setItem(USER_KEY, JSON.stringify({ site: state.site, username: state.username })); } catch (e) {} schedulePush(); }
     function loadSort() { try { return localStorage.getItem(SORT_KEY) || 'loss'; } catch (e) { return 'loss'; } }
     function saveSort(s) { try { localStorage.setItem(SORT_KEY, s); } catch (e) {} }
+    /* Every read of the scan goes through here, and every write is made
+       against a reading taken just before it. The cloud copy lands in the
+       same localStorage key at a moment of its own choosing, so a copy held
+       across an await is a copy that can be written back over it. */
+    function readCache() {
+      var c = loadCache();
+      if (c.depth !== GEN_DEPTH) c = { depth: GEN_DEPTH, byGame: {} };
+      c.byGame = c.byGame || {};
+      return c;
+    }
+
+    /* One game's result, written against a reading taken here rather than
+       one carried across the scan that produced it: scanning a game is
+       seconds of awaiting, and the cloud copy lands in this same key whenever
+       it happens to arrive. Read, set and save with nothing awaited in
+       between, and whatever arrived is still in what goes back. */
+    function rememberPuzzle(gameId, puzzle) {
+      var c = readCache();
+      c.byGame[gameId] = puzzle || null;
+      saveCache(c);
+    }
+
     // persist solved state so a reload knows which puzzles are still open
     function markSolvedInCache(p) {
       var cache = loadCache();
@@ -390,6 +416,24 @@
 
     var cloudPush = null, pushTimer = null;
 
+    /* The first build waits for this. A scan is minutes of Stockfish and the
+       cloud may already be holding the finished one, so starting before the
+       answer arrives means running it again on every device but the one that
+       did it first — which is the whole thing signing in was for.
+
+       It settles when sync.js has had its say, whichever way: a snapshot, no
+       user to fetch one for, or a read it could not make. The timer is the
+       backstop for sync.js never loading at all, and is the only path that
+       actually spends the wait. */
+    var cloudDone = false, settleCloudNow = null;
+    var cloudReady = new Promise(function (resolve) { settleCloudNow = resolve; });
+    function settleCloud() {
+      if (cloudDone) return;
+      cloudDone = true;
+      settleCloudNow();
+    }
+    setTimeout(settleCloud, CLOUD_WAIT_MS);
+
     function cloudPayload() {
       var cache = loadCache(), src = cache.byGame || {}, byGame = {};
       Object.keys(src).forEach(function (id) {
@@ -412,10 +456,9 @@
     }
 
     function mergeCloud(remote) {
+      settleCloud();          // an answer arrived, whatever is in it
       if (!remote) return;
-      var cache = loadCache();
-      if (cache.depth !== GEN_DEPTH) cache = { depth: GEN_DEPTH, byGame: {} };
-      cache.byGame = cache.byGame || {};
+      var cache = readCache();
 
       // A scan run at another depth is a different set of puzzles, not a newer
       // one — take the account off it and leave its positions where they are.
@@ -461,6 +504,9 @@
     // What sync.js needs, and nothing else.
     window.YcpCloud = {
       merge: mergeCloud,
+      // "I have said all I am going to say for now" — a snapshot delivered
+      // even with nothing in it, no user to ask about, or a refused read.
+      settled: settleCloud,
       setPusher: function (fn) { cloudPush = fn; if (fn) schedulePush(); }
     };
 
@@ -714,15 +760,15 @@
       var games = state.lostGames.slice()
         .sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); })
         .slice(0, MAX_GAMES);
-      var cache = loadCache();
-      if (cache.depth !== GEN_DEPTH) cache = { depth: GEN_DEPTH, byGame: {} };
-      cache.byGame = cache.byGame || {};
-
       state.puzzles = [];
       var startedSolving = false;
       for (var gi = 0; gi < games.length; gi++) {
         var g = games[gi];
         var puzzle;
+        /* Read again each time round rather than once for the whole build,
+           so a game the cloud supplied while an earlier one was being scanned
+           is found here instead of being scanned again. */
+        var cache = readCache();
         if (Object.prototype.hasOwnProperty.call(cache.byGame, g.id)) {
           puzzle = cache.byGame[g.id];
           if (backfillPrev(puzzle, g)) saveCache(cache);
@@ -736,7 +782,7 @@
               setProgress('Scanning loss ' + (gi + 1) + '/' + games.length + ' vs ' + escapeHtml(g.opponent) + ' — move ' + mi + '/' + mtot, ((gi + (mi / mtot)) / games.length) * 100);
             });
           } catch (e) { puzzle = null; }
-          cache.byGame[g.id] = puzzle || null; saveCache(cache);
+          rememberPuzzle(g.id, puzzle);
         }
         if (puzzle) {
           state.puzzles.push(puzzle);
@@ -1444,19 +1490,22 @@
       sourceReady = detectSource().then(function () {
         renderSource();
         var last = loadLastUser();
+        var wanted = state.source === 'suite' || (state.source === 'manual' && last && last.username);
+        if (!wanted) return;
         if (state.source === 'suite') {
           // Suite mode reads Lines' cache once and has no other way to learn
           // about a game finished after that — check for anything newer in
           // the background; doBuild() awaits this before it reads
           // state.lostGames, so a just-finished loss is still included in
-          // the very first scan.
+          // the very first scan. Started before the wait below, so the two
+          // overlap.
           state.refreshPromise = refreshNewGames();
-          runBuild(true);
-        } else if (state.source === 'manual' && last && last.username) {
-          // Manual mode's own build always re-fetches in full, so it has no
-          // freshness gap to fix here.
-          runBuild(true);
         }
+        if (!cloudDone) setProgress('Looking for a scan you have already run…', 2);
+        /* Not returned into sourceReady, which means "we know where the games
+           come from" and is waited on elsewhere — including by the merge that
+           may be what settles this. */
+        cloudReady.then(function () { runBuild(true); });
       });
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

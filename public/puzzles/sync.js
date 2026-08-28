@@ -36,7 +36,10 @@ const db = initializeFirestore(app, { localCache: persistentLocalCache() });
 const $ = id => document.getElementById(id);
 /* if the app's own script never ran there is nothing to sync, but the page
    should still not throw on the way past */
-const cloud = window.YcpCloud || { merge() {}, setPusher() {} };
+const cloud = window.YcpCloud || { merge() {}, setPusher() {}, settled() {} };
+/* The app holds its first build until this is called, so every road out of
+   here has to call it — including the ones with nothing to report. */
+const settled = () => { try { cloud.settled && cloud.settled(); } catch (e) {} };
 
 let ref = null, unsub = null;
 
@@ -80,15 +83,15 @@ function paint(user) {
 onAuthStateChanged(auth, async user => {
   if (unsub) { unsub(); unsub = null; }
   paint(user);
-  if (!user) { ref = null; cloud.setPusher(null); return; }
+  if (!user) { ref = null; cloud.setPusher(null); settled(); return; }
   ref = doc(db, "users", user.uid, "apps", "puzzles");
   /* before the pusher, so the one write that signing in triggers already
      carries anything lifted out of the old shared document */
   await liftLegacy(user.uid);
   cloud.setPusher(push);
   unsub = onSnapshot(ref,
-    snap => { const d = snap.data(); if (d && d.puzzles) cloud.merge(d.puzzles); },
-    e => console.warn("[sync] read refused: " + e.message));
+    snap => { const d = snap.data(); if (d && d.puzzles) cloud.merge(d.puzzles); else settled(); },
+    e => { console.warn("[sync] read refused: " + e.message); settled(); });
 });
 
 $("signin").onclick = () => {
