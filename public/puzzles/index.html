@@ -392,6 +392,21 @@
       saveCache(c);
     }
 
+    /* Everything the scan has already found — this browser's own runs and
+       whatever came down from the cloud. A puzzle carries its own position,
+       its own colour and its own account of the game it came from, so this is
+       enough to show and to solve without the site being asked for anything.
+       Newest first, and no more of them than a fresh scan would offer. */
+    function cachedPuzzles() {
+      var byGame = readCache().byGame, out = [];
+      Object.keys(byGame).forEach(function (id) {
+        var p = byGame[id];
+        if (p && p.fen) out.push(p);
+      });
+      out.sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
+      return out.slice(0, MAX_GAMES);
+    }
+
     // persist solved state so a reload knows which puzzles are still open
     function markSolvedInCache(p) {
       var cache = loadCache();
@@ -744,6 +759,34 @@
       // load in suite mode — see init()), wait for it so a just-finished
       // game is included in this very scan rather than the next one.
       if (state.refreshPromise) { try { await state.refreshPromise; } catch (e) {} state.refreshPromise = null; }
+
+      /* On a device that has the set already, there is nothing to wait for:
+         put it on the board now and go looking for new losses behind it. What
+         follows rebuilds this list from the games it finds, reusing these very
+         objects for the ones it recognises, so nothing on screen is replaced
+         by an equal copy of itself. */
+      var known = cachedPuzzles();
+      if (known.length) {
+        state.puzzles = known;
+        applySort();
+        if (autoJump && $id('player').classList.contains('hide')) {
+          state.idx = 0;
+          for (var ki = 0; ki < state.puzzles.length; ki++) {
+            if (!state.puzzles[ki].solved) { state.idx = ki; break; }
+          }
+          showPuzzle();
+        } else refreshPlayerChrome();
+      }
+
+      // Whatever went wrong reaching the site, a set already in hand is a
+      // better answer than an error where the puzzles should be.
+      function keepWhatWeHave(msg) {
+        // The raw reason belongs to the case where it is all there is to say.
+        if (!state.puzzles.length) { setSetupError(msg); return; }
+        setProgress('Could not check for new games — showing the ' + state.puzzles.length +
+          ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' already saved.', 100);
+      }
+
       if (state.source === 'manual') {
         try {
           var input = $id('userInput'); state.username = input ? input.value.trim() : '';
@@ -751,8 +794,8 @@
           var all = await fetchGames(state.site, state.username);
           state.lostGames = all.filter(function (g) { return g.result === 'loss'; });
           saveLastUser();
-          if (!state.lostGames.length) { setSetupError('No recent lost games found for that account.'); setBuilding(false); return; }
-        } catch (e) { setSetupError(e.message || 'Could not fetch games.'); setBuilding(false); return; }
+          if (!state.lostGames.length) { keepWhatWeHave('No recent lost games found for that account.'); setBuilding(false); return; }
+        } catch (e) { keepWhatWeHave(e.message || 'Could not fetch games.'); setBuilding(false); return; }
       }
       $id('buildProgress').classList.remove('hide');
       await engine.ready();
@@ -760,6 +803,16 @@
       var games = state.lostGames.slice()
         .sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); })
         .slice(0, MAX_GAMES);
+      if (!games.length) { keepWhatWeHave('No lost games to scan.'); setBuilding(false); return; }
+
+      // The puzzles already on screen, by game, so a game the cache answers
+      // for hands back the object that is being shown rather than an equal
+      // copy of it — which is what lets the sort put the board back where it
+      // was afterwards.
+      var shown = {};
+      state.puzzles.forEach(function (p) { shown[p.gameId] = p; });
+      var showingBefore = $id('player').classList.contains('hide') ? null : curPuzzle();
+
       state.puzzles = [];
       var startedSolving = false;
       for (var gi = 0; gi < games.length; gi++) {
@@ -770,8 +823,8 @@
            is found here instead of being scanned again. */
         var cache = readCache();
         if (Object.prototype.hasOwnProperty.call(cache.byGame, g.id)) {
-          puzzle = cache.byGame[g.id];
-          if (backfillPrev(puzzle, g)) saveCache(cache);
+          puzzle = shown[g.id] || cache.byGame[g.id];
+          if (puzzle && backfillPrev(puzzle, g)) rememberPuzzle(g.id, puzzle);
           setProgress('Loaded cached game ' + (gi + 1) + '/' + games.length + ' (vs ' + escapeHtml(g.opponent) + ')', ((gi + 1) / games.length) * 100);
         } else {
           (function (cur, idx) {
@@ -796,6 +849,12 @@
         }
       }
       applySort();
+      /* The list was rebuilt underneath whatever is on the board, so the two
+         are made to agree again before anyone is told it is done. */
+      if (!$id('player').classList.contains('hide') && state.puzzles.length) {
+        if (state.idx >= state.puzzles.length) state.idx = 0;
+        if (curPuzzle() !== showingBefore) showPuzzle();
+      }
       refreshPlayerChrome();
       setProgress('Done — found ' + state.puzzles.length + ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' from ' + games.length + ' losses.', 100);
       setBuilding(false);
