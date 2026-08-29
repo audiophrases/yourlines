@@ -203,6 +203,7 @@
               <div id="solText" style="font-size:13.5px"></div>
               <div class="row" style="margin-top:12px">
                 <a id="playLink" class="btn teal" target="yourlines-play" title="Open this position on the analysis board">Analyse in Play</a>
+                <a id="sparLink" class="btn" target="yourlines-spar" title="Play the rest of it out against the coach">Play it out ↗</a>
                 <a id="gameLink" class="btn" target="_blank" rel="noopener noreferrer" title="Open the original game">Original game ↗</a>
               </div>
             </div>
@@ -235,6 +236,8 @@
     var MAX_GAMES = clampInt(params.get('maxgames'), 1, 60, 8);
     var CHECK_DEPTH = GEN_DEPTH;
     var ACCEPT_CP = 60;            // a try losing <= 0.6 pawn vs best counts as solved
+    var MAX_LINE = clampInt(params.get('line'), 1, 6, 3);        // solver moves per puzzle, the blunder fix included
+    var UNIQUE_CP = clampInt(params.get('unique'), 0, 600, 150); // how far clear of the runner-up a move must be to be "the" move
     var BLUNDER_MIN_CP = 80;       // ignore drops smaller than 0.8 pawn
     var NOT_LOST_CP = -350;        // only puzzle positions where you weren't already losing badly
     var MATE = 100000;
@@ -251,11 +254,13 @@
     // whatever origin the suite was served from — localhost or the project
     // site. Standing alone on GitHub Pages there is no suite around us, so the
     // link reaches across to the published one.
-    var PLAY_BASE = (function () {
+    var PLAY_BASE = suiteApp('play');
+    var SPAR_BASE = suiteApp('spar');
+    function suiteApp(name) {
       var i = location.pathname.indexOf('/puzzles/');
-      if (i >= 0) return location.pathname.slice(0, i + 1) + 'play/';
-      return 'https://audiophrases.github.io/yourlines/play/';
-    })();
+      if (i >= 0) return location.pathname.slice(0, i + 1) + name + '/';
+      return 'https://audiophrases.github.io/yourlines/' + name + '/';
+    }
 
     function clampInt(v, lo, hi, dflt) { var n = parseInt(v, 10); if (!isFinite(n)) return dflt; return Math.max(lo, Math.min(hi, n)); }
     function $id(id) { return document.getElementById(id); }
@@ -271,6 +276,7 @@
         var p = line.split(/\s+/), m = {};
         for (var i = 0; i < p.length; i++) {
           if (p[i] === 'depth') m.depth = +p[i + 1];
+          else if (p[i] === 'multipv') m.multipv = +p[i + 1];
           else if (p[i] === 'score') { if (p[i + 1] === 'cp') m.cp = +p[i + 2]; else if (p[i + 1] === 'mate') m.mate = +p[i + 2]; }
           else if (p[i] === 'pv') { m.pv = p.slice(i + 1); break; }
         }
@@ -286,23 +292,45 @@
         if (!active) return;
         if (line.lastIndexOf('info', 0) === 0) {
           var info = parseInfo(line);
-          if (info.cp != null || info.mate != null) active.last = info;
+          if (info.cp != null || info.mate != null) {
+            var slot = info.multipv || 1;
+            active.lines[slot] = info;
+            /* Only the first line is the position's evaluation. With MultiPV
+               on, the last info of an iteration is the weakest line the engine
+               kept, and letting that land in .last would quietly mis-score
+               every scan the app has ever run. */
+            if (slot === 1) active.last = info;
+          }
         } else if (line.lastIndexOf('bestmove', 0) === 0) {
           var bm = line.split(/\s+/)[1];
           var info2 = active.last || {};
           var whiteToMove = active.fen.split(' ')[1] === 'w';
           var cp = info2.cp != null ? (whiteToMove ? info2.cp : -info2.cp) : null;
           var mate = info2.mate != null ? (whiteToMove ? info2.mate : -info2.mate) : null;
+          /* Every line the engine kept, best first, each named by the move
+             that starts it — which is what tells us whether the best move is
+             the only move. One line deep, this is just the best move again. */
+          var alts = Object.keys(active.lines)
+            .sort(function (a, b) { return a - b; })
+            .map(function (k) {
+              var L = active.lines[k];
+              return { uci: L.pv && L.pv.length ? L.pv[0] : null,
+                cp: L.cp != null ? (whiteToMove ? L.cp : -L.cp) : null,
+                mate: L.mate != null ? (whiteToMove ? L.mate : -L.mate) : null };
+            })
+            .filter(function (a) { return !!a.uci; });
           var res = { cp: cp, mate: mate, depth: info2.depth || 0,
             bestmove: (bm && bm !== '(none)') ? bm : (info2.pv ? info2.pv[0] : null),
-            pv: info2.pv || [] };
+            pv: info2.pv || [], alts: alts };
           var job = active; active = null; job.resolve(res); pump();
         }
       };
       if (worker) worker.postMessage('uci');
+      var mpv = 1;     // what the worker was last told; only re-sent on change
       function pump() {
         if (active || !queue.length || !worker) return;
         active = queue.shift();
+        if (active.multipv !== mpv) { mpv = active.multipv; worker.postMessage('setoption name MultiPV value ' + mpv); }
         worker.postMessage('ucinewgame');
         worker.postMessage('position fen ' + active.fen);
         worker.postMessage('go depth ' + active.depth);
@@ -310,9 +338,17 @@
       return {
         available: !!worker,
         ready: function () { return readyPromise; },
-        analyse: function (fen, depth) {
+        /* `urgent` puts a job at the head of the queue. Only a move someone
+           is sitting there waiting on gets it: background work can be dozens
+           of positions long, and a check queued behind all of it would look
+           like the app had simply stopped answering. */
+        analyse: function (fen, depth, multipv, urgent) {
           return readyPromise.then(function () {
-            return new Promise(function (resolve) { queue.push({ fen: fen, depth: depth, resolve: resolve, last: null }); pump(); });
+            return new Promise(function (resolve) {
+              var job = { fen: fen, depth: depth, multipv: multipv || 1, resolve: resolve, last: null, lines: {} };
+              if (urgent) queue.unshift(job); else queue.push(job);
+              pump();
+            });
           });
         }
       };
@@ -488,9 +524,19 @@
             if (p && ent.solved) p.solved = true;
             cache.byGame[ent.id] = p;
             changed = true;
-          } else if (ent.solved && cache.byGame[ent.id] && !cache.byGame[ent.id].solved) {
-            cache.byGame[ent.id].solved = true;
-            changed = true;
+          } else if (cache.byGame[ent.id]) {
+            var loc = cache.byGame[ent.id];
+            if (ent.solved && !loc.solved) { loc.solved = true; changed = true; }
+            /* Minutes of Stockfish went into working out how far this puzzle
+               runs. Union, like everything else here: a line is taken when
+               there is none, never taken away. */
+            if ((!loc.line || !loc.lineDone) && ent.j) {
+              try {
+                var rp = JSON.parse(ent.j);
+                if (rp && rp.line && !loc.line) { loc.line = rp.line; changed = true; }
+                if (rp && rp.lineDone && !loc.lineDone) { loc.lineDone = true; changed = true; }
+              } catch (e) {}
+            }
           }
         });
         if (changed) saveCache(cache);
@@ -704,6 +750,7 @@
       }
       if (!worst) return null;
       var pj = worst.j;
+      var line = await extendLine(fens[pj], game.userColor, results[pj].bestmove);
       return {
         gameId: game.id, site: game.site, url: game.url, opponent: game.opponent,
         date: game.date, timeClass: game.timeClass, userColor: game.userColor,
@@ -712,8 +759,76 @@
         // highlights so you can see what you were answering
         prevUci: pj > 0 ? ucis[pj - 1] : null, prevSan: pj > 0 ? sans[pj - 1] : null,
         playedUci: ucis[pj], playedSan: sans[pj], playedAfterCp: worst.after,
-        bestUci: results[pj].bestmove, beforeCp: worst.before, loss: worst.loss, solved: false
+        bestUci: results[pj].bestmove, beforeCp: worst.before, loss: worst.loss,
+        line: line, solved: false
       };
+    }
+
+    /* ---- how far past the blunder the puzzle goes ------------------------
+       One move is the whole lesson only when nothing follows from it. From the
+       position the puzzle starts in we walk forward: you play the move the
+       engine calls best, your opponent answers with theirs, and we ask again.
+
+       The line keeps going only while your move is the ONLY move — clear of
+       the runner-up by UNIQUE_CP. The moment two moves both hold, telling you
+       one of them is "wrong" would be a lie, and that is where the puzzle
+       ends. So the length is not a setting anybody picked; it is a reading of
+       how forced the position happens to be.
+
+       Two engine calls buy each extra move, against the ~80 a single game
+       scan already spends walking every ply, so this is the cheap part. */
+    async function extendLine(startFen, userColor, firstUci) {
+      var c = new Chess();
+      if (!startFen || !c.load(startFen)) return [];
+      var line = [];
+      for (var step = 0; step < MAX_LINE; step++) {
+        var ev = await engine.analyse(c.fen(), GEN_DEPTH, 2);
+        var uci = (step === 0 && firstUci) ? firstUci : ev.bestmove;
+        if (!uci) break;
+        // The move against the best of the rest, both read from your side.
+        var mine = null, rest = null;
+        (ev.alts || []).forEach(function (a) {
+          var v = userCp(a, userColor);
+          if (a.uci === uci) { if (mine === null || v > mine) mine = v; }
+          else if (rest === null || v > rest) rest = v;
+        });
+        if (mine === null) mine = userCp(ev, userColor);
+        /* The first move is the puzzle and is always asked — it is the one you
+           got wrong in a real game. After that, only ask when there is a
+           single answer to ask for. */
+        if (step > 0 && rest !== null && mine - rest < UNIQUE_CP) break;
+        var mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+        if (!mv) break;
+        var s = { uci: uci, san: mv.san, cp: mine, reply: null, replySan: null,
+          cap: !!mv.captured, sq: mv.to, replyCap: false, replySq: null };
+        line.push(s);
+        if (c.game_over()) break;
+        var rev = await engine.analyse(c.fen(), GEN_DEPTH);
+        if (!rev.bestmove) break;
+        var rmv = c.move({ from: rev.bestmove.slice(0, 2), to: rev.bestmove.slice(2, 4),
+          promotion: rev.bestmove.length > 4 ? rev.bestmove[4] : undefined });
+        if (!rmv) break;
+        s.reply = rev.bestmove; s.replySan = rmv.san;
+        s.replyCap = !!rmv.captured; s.replySq = rmv.to;
+        if (c.game_over()) break;
+      }
+      /* A puzzle ends on your move, so the last answer is always dropped —
+         and the move left at the end has to be one worth finding. Two are not:
+         taking back on the square they have just taken on, which is what
+         anybody plays without looking, and grabbing something they simply take
+         back, which only looks like winning material. Trim either off the end
+         and look again — but never past the first move, which is the one you
+         got wrong in a real game and is always worth asking for. */
+      while (line.length > 1) {
+        var k = line.length - 1, cur = line[k], prev = line[k - 1];
+        var takesBack = cur.cap && prev.replyCap && cur.sq === prev.replySq;
+        var grabsBack = cur.cap && cur.replyCap && cur.replySq === cur.sq;
+        if (!takesBack && !grabsBack) break;
+        line.pop();
+      }
+      if (line.length) { var end = line[line.length - 1]; end.reply = null; end.replySan = null; }
+      line.forEach(function (s2) { delete s2.cap; delete s2.sq; delete s2.replyCap; delete s2.replySq; });
+      return line;
     }
 
     // A puzzle cached before this app highlighted the opponent's move has no
@@ -859,8 +974,36 @@
       setProgress('Done — found ' + state.puzzles.length + ' puzzle' + (state.puzzles.length === 1 ? '' : 's') + ' from ' + games.length + ' losses.', 100);
       setBuilding(false);
       schedulePush();
+      // Runs on behind the finished set — see fillMissingLines.
+      fillMissingLines();
       if (state.puzzles.length) $id('startSolvingBtn').classList.remove('hide');
       else setSetupError('No clear one-move blunders found in those games. Try scanning more (?maxgames=20) or a deeper look (?depth=14).');
+    }
+
+    /* A puzzle saved before the app looked past the first move has no line.
+       Rather than make everyone rescan whole games to get one, they are worked
+       out afterwards from positions already in hand, and kept — the same trick
+       backfillPrev plays, only this one needs the engine.
+
+       It runs after the set is on screen and after "Done", so nobody waits on
+       it, and each answer is saved as it arrives so a closed tab loses at most
+       one. The move you play while it runs jumps the queue ahead of it. */
+    var fillingLines = false;
+    async function fillMissingLines() {
+      if (fillingLines) return;
+      var todo = state.puzzles.filter(function (p) { return p && p.fen && !p.line; });
+      if (!todo.length) return;
+      fillingLines = true;
+      try {
+        for (var i = 0; i < todo.length; i++) {
+          var p = todo[i];
+          try { p.line = await extendLine(p.fen, p.userColor, p.bestUci); }
+          catch (e) { p.line = []; }     // settled either way — never asked twice
+          rememberPuzzle(p.gameId, p);
+          renderPuzzleList();
+        }
+        schedulePush();
+      } finally { fillingLines = false; }
     }
 
     // Sort order for the puzzle list — 'loss' (worst blunder first, default)
@@ -914,21 +1057,49 @@
     var solveState = 'solving';   // solving | checking | refuted | solved | revealed
     var attempts = 0;
     var shownFen = '';            // the fen currently shown on the board
+    var lineStep = 0;             // which move of the line is being asked for
+    var solveFen = '';            // the position that move is played from
 
     function curPuzzle() { return state.puzzles[state.idx] || null; }
+
+    /* A puzzle's line: the blunder fix, and however much of what followed was
+       still forced. Puzzles saved before the app looked past the first move
+       have none, and stay the one-move puzzles they have always been. */
+    function lineOf(p) { return (p && p.line && p.line.length) ? p.line : null; }
+    function stepAt(p, i) { var L = lineOf(p); return L ? L[i] : null; }
+    function stepCount(p) { var L = lineOf(p); return L ? L.length : 1; }
+    function stepWant(p) { var s = stepAt(p, lineStep); return s ? s.uci : p.bestUci; }
+    function stepBase(p) { var s = stepAt(p, lineStep); return (s && s.cp != null) ? s.cp : p.beforeCp; }
+    // The line as it reads: your moves, with theirs in between.
+    function lineSan(p) {
+      var L = lineOf(p); if (!L) return '';
+      var out = [];
+      L.forEach(function (s) { out.push(s.san); if (s.replySan) out.push(s.replySan); });
+      return out.join(' ');
+    }
+    /* What the board marks as just-played: the move from the real game at the
+       start of the line, and the answer from the line at every step after. */
+    function stepPrev(p) {
+      if (lineStep > 0) {
+        var prev = stepAt(p, lineStep - 1);
+        return (prev && prev.reply) ? [prev.reply.slice(0, 2), prev.reply.slice(2, 4)] : null;
+      }
+      return p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+    }
 
     function showPuzzle() {
       var p = curPuzzle(); if (!p) return;
       $id('setup').classList.add('hide'); $id('player').classList.remove('hide');
       ensureBoard();
       solveState = 'solving'; attempts = 0; shownFen = p.fen;
-      clearRefute();
+      lineStep = 0; solveFen = p.fen;
+      clearRefute(); stopReveal();
       clearHighlights();
       // orientation() and position() both rebuild or redraw, so the marks go on
       // after them: the opponent's move is the first thing to look at here.
       state.board.orientation(p.userColor);
       state.board.position(p.fen);
-      marks.prev = p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+      marks.prev = stepPrev(p);
       paintMarks();
       var moveNo = p.moveNumber;
       $id('whoTitle').textContent = 'You are ' + p.userColor + ' — move ' + moveNo;
@@ -940,7 +1111,8 @@
       $id('prompt').innerHTML =
         (p.prevSan ? '<b style="color:var(--mist-100)">' + escapeHtml(p.opponent || 'Your opponent') +
           ' has just played ' + escapeHtml(p.prevSan) + '</b> (marked on the board). ' : '') +
-        'In this lost game your position collapsed here — find the move you should have played.';
+        'In this lost game your position collapsed here — find the move you should have played.' +
+        (stepCount(p) > 1 ? ' It does not end there — you will have to follow it up.' : '');
       $id('turnHint').textContent = moveHint(p);
       setStatus('', '');
       $id('revealBtn').classList.remove('hide'); $id('retryBtn').classList.add('hide');
@@ -1012,7 +1184,7 @@
     // and the board is showing its position rather than a try being taken back.
     function canMoveNow() {
       var p = curPuzzle();
-      return !!p && solveState === 'solving' && shownFen === p.fen;
+      return !!p && solveState === 'solving' && shownFen === solveFen;
     }
     function isDest(square) {
       return marks.dests.some(function (d) { return d.sq === square; });
@@ -1049,7 +1221,7 @@
       var p = curPuzzle();
       if (!p || !canMoveNow()) { clearSelection(); return; }
       if (selectedSq === square) { clearSelection(); return; }
-      var c = new Chess(); c.load(p.fen);
+      var c = new Chess(); c.load(solveFen);
       if (selectedSq && isDest(square)) {
         var from = selectedSq;
         clearSelection();
@@ -1069,7 +1241,7 @@
       var p = curPuzzle();
       if (!p || !canMoveNow()) return false;
       if (selectedSq && source !== selectedSq && isDest(source)) return false;
-      return piece.charAt(0) === p.fen.split(' ')[1];
+      return piece.charAt(0) === solveFen.split(' ')[1];
     }
 
     function onDrop(source, target) {
@@ -1081,7 +1253,7 @@
     function submitMove(source, target) {
       var p = curPuzzle();
       if (!p || !canMoveNow()) return false;
-      var c = new Chess(); c.load(p.fen);
+      var c = new Chess(); c.load(solveFen);
       var mv = c.move({ from: source, to: target, promotion: 'q' });
       if (!mv) return false;
       clearSelection();
@@ -1095,27 +1267,69 @@
     }
 
     async function attemptMove(p, mv, afterFen) {
-      var ev = await engine.analyse(afterFen, CHECK_DEPTH);
-      if (curPuzzle() !== p) return; // moved on
+      var atStep = lineStep;
+      // Urgent: this is the one call somebody is sitting there waiting on.
+      var ev = await engine.analyse(afterFen, CHECK_DEPTH, 1, true);
+      if (curPuzzle() !== p || lineStep !== atStep) return; // moved on
       var afterCp = userCp(ev, p.userColor);
-      var loss = p.beforeCp - afterCp;
+      var loss = stepBase(p) - afterCp;
       var uci = mv.from + mv.to + (mv.promotion || '');
-      var good = uci === p.bestUci || loss <= ACCEPT_CP;
+      var good = uci === stepWant(p) || loss <= ACCEPT_CP;
       if (good) {
-        p.solved = true;
-        markSolvedInCache(p);
-        solveState = 'solved';
+        /* Finding the move you missed is what the puzzle was set to teach, so
+           that is still what marks it solved — whatever else the line asks of
+           you afterwards, and whether or not you go on to get it. */
+        if (atStep === 0 && !p.solved) { p.solved = true; markSolvedInCache(p); }
         clearHighlights(); marks.from = mv.from; marks.to = mv.to; paintMarks();
-        setStatus('Solved! ' + mv.san + ' holds — eval ' + fmtCp(afterCp) + ' (you kept your position).', 'good');
-        $id('turnHint').textContent = 'Solved ✓';
-        revealSolution(p, true);
-        updateSolvedCount(); renderPuzzleList();
+        var step = stepAt(p, atStep);
+        if (step && step.reply && atStep + 1 < stepCount(p)) { playOn(p, mv, afterFen, step); return; }
+        finishPuzzle(p, mv, afterCp);
       } else {
         attempts++;
         solveState = 'refuted';
         $id('retryBtn').classList.remove('hide');
         showRefutation(p, mv, afterFen, ev, afterCp);
       }
+    }
+
+    /* The line is done — which took one move or three, depending on how much
+       of what followed the blunder was forced. */
+    function finishPuzzle(p, mv, afterCp) {
+      solveState = 'solved';
+      if (stepCount(p) > 1 && !p.lineDone) { p.lineDone = true; rememberPuzzle(p.gameId, p); schedulePush(); }
+      setStatus(stepCount(p) > 1
+        ? 'Solved — the whole line: ' + lineSan(p) + '. Eval ' + fmtCp(afterCp) + '.'
+        : 'Solved! ' + mv.san + ' holds — eval ' + fmtCp(afterCp) + ' (you kept your position).', 'good');
+      $id('turnHint').textContent = 'Solved ✓';
+      revealSolution(p, true);
+      updateSolvedCount(); renderPuzzleList();
+    }
+
+    /* One right move is not the end of the lesson when the line goes on. Your
+       opponent answers — played out rather than jumped past, because seeing
+       what you have to meet is half of why the move after it is hard — and
+       then the same question is asked a move later. */
+    function playOn(p, mv, afterFen, step) {
+      var from = lineStep;
+      solveState = 'checking';
+      setStatus('Good — ' + mv.san + '. Now the answer you have to meet…', 'good');
+      $id('turnHint').innerHTML = '<span class="spinner"></span> their move';
+      window.setTimeout(function () {
+        if (curPuzzle() !== p || lineStep !== from || solveState !== 'checking') return;
+        var c = new Chess();
+        var r = c.load(afterFen) && c.move({ from: step.reply.slice(0, 2), to: step.reply.slice(2, 4),
+          promotion: step.reply.length > 4 ? step.reply[4] : undefined });
+        if (!r) { finishPuzzle(p, mv, stepBase(p)); return; }
+        lineStep = from + 1;
+        solveFen = c.fen(); shownFen = solveFen;
+        state.board.position(shownFen);
+        clearHighlights();
+        marks.prev = [r.from, r.to];
+        paintMarks();
+        solveState = 'solving';
+        setStatus(r.san + ' — and now? Find the move that keeps it.', '');
+        $id('turnHint').textContent = moveHint(p) + stepSuffix(p);
+      }, 750);
     }
 
     /* ---- why a wrong try is wrong --------------------------------------
@@ -1388,29 +1602,70 @@
       refutePlay(0);
     }
 
+    // Back to the move you got wrong — which, in a line, is the one you are
+    // on rather than the one the puzzle opened with.
     function retry() {
       var p = curPuzzle(); if (!p) return;
-      clearRefute();
-      solveState = 'solving'; shownFen = p.fen; clearHighlights();
-      state.board.position(p.fen);
-      marks.prev = p.prevUci ? [p.prevUci.slice(0, 2), p.prevUci.slice(2, 4)] : null;
+      clearRefute(); stopReveal();
+      solveState = 'solving'; shownFen = solveFen; clearHighlights();
+      state.board.position(solveFen);
+      marks.prev = stepPrev(p);
       paintMarks();
       setStatus('', ''); $id('retryBtn').classList.add('hide');
-      $id('turnHint').textContent = moveHint(p);
+      $id('turnHint').textContent = moveHint(p) + stepSuffix(p);
+    }
+    function stepSuffix(p) {
+      return stepCount(p) > 1 ? ' — move ' + (lineStep + 1) + ' of ' + stepCount(p) : '';
     }
 
+    var revealTimer = null;
+    function stopReveal() { if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; } }
+
+    /* Everything still to be found from where you are — your moves and their
+       answers, played out in order, because the order is the point of a line
+       and a position it has already reached teaches none of it. */
     function reveal() {
       var p = curPuzzle(); if (!p) return;
-      clearRefute();
+      clearRefute(); stopReveal();
       solveState = 'revealed';
-      var best = new Chess(); best.load(p.fen);
-      var bm = p.bestUci ? best.move({ from: p.bestUci.slice(0, 2), to: p.bestUci.slice(2, 4), promotion: p.bestUci.length > 4 ? p.bestUci[4] : undefined }) : null;
-      shownFen = best.fen();
-      state.board.position(shownFen);
-      clearHighlights();
-      if (p.bestUci) { marks.from = p.bestUci.slice(0, 2); marks.to = p.bestUci.slice(2, 4); paintMarks(); }
-      setStatus('The engine plays ' + (bm ? bm.san : '—') + '.', '');
+      var c = new Chess();
+      if (!c.load(solveFen || p.fen)) return;
+      var L = lineOf(p), plies = [];
+      function push(m, mine) { plies.push({ from: m.from, to: m.to, san: m.san, fen: c.fen(), mine: mine }); }
+      function play(uci) {
+        return uci && c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+      }
+      if (L) {
+        for (var i = lineStep; i < L.length; i++) {
+          var m = play(L[i].uci); if (!m) break;
+          push(m, true);
+          if (!L[i].reply) break;
+          var r = play(L[i].reply); if (!r) break;
+          push(r, false);
+        }
+      } else {
+        var b = play(p.bestUci);
+        if (b) push(b, true);
+      }
+      if (!plies.length) {
+        setStatus('The engine plays —.', '');
+        $id('turnHint').textContent = 'Solution shown';
+        revealSolution(p, false); renderPuzzleList(); return;
+      }
+      setStatus('The engine plays ' + plies.map(function (x) { return x.san; }).join(' ') + '.', '');
       $id('turnHint').textContent = 'Solution shown';
+      var at = 0;
+      (function stepThrough() {
+        var ply = plies[at++];
+        shownFen = ply.fen;
+        state.board.position(shownFen);
+        clearHighlights();
+        marks.prev = null;
+        if (ply.mine) { marks.from = ply.from; marks.to = ply.to; }
+        else marks.punish = [ply.from, ply.to];
+        paintMarks();
+        revealTimer = at < plies.length ? window.setTimeout(stepThrough, 750) : null;
+      })();
       revealSolution(p, false);
       renderPuzzleList();
     }
@@ -1421,17 +1676,50 @@
       var playedTail = isMate(p.playedAfterCp)
         ? 'walking into mate (' + fmtCp(p.playedAfterCp) + ').'
         : 'dropping to ' + fmtCp(p.playedAfterCp) + ' (−' + (p.loss / 100).toFixed(1) + ' pawns).';
+      var L = lineOf(p);
       var html =
         '<div><b style="color:var(--emerald)">Best: ' + escapeHtml(bestSan) + '</b> — keeps the eval near ' + fmtCp(p.beforeCp) + '.</div>' +
+        (L && L.length > 1
+          ? '<div style="margin-top:6px">And it does not stop there — <b style="color:var(--mist-100)">' +
+            escapeHtml(lineSan(p)) + '</b>. Every one of your ' + L.length +
+            ' moves is the only one that holds; that is why the puzzle runs this far.</div>'
+          : '') +
         '<div style="margin-top:6px; color:var(--rose)">In the game you played <b>' + escapeHtml(playedSan) + '</b>, ' + playedTail + '</div>';
       $id('solText').innerHTML = html;
       // Play link carries the puzzle position; game link opens the source game.
       var playHref = PLAY_BASE + '?fen=' + encodeURIComponent(p.fen);
       $id('playLink').setAttribute('href', playHref);
+      /* And the coach gets the position the solution reaches, not the one the
+         puzzle started from: the question the puzzle could answer is answered
+         by then, and the one it cannot — how to actually win it — starts. */
+      var sl = $id('sparLink'), after = fenAfterSolution(p);
+      if (after) {
+        sl.setAttribute('href', SPAR_BASE + '?fen=' + encodeURIComponent(after));
+        sl.textContent = 'Play it out ↗';
+        sl.classList.remove('hide');
+      } else sl.classList.add('hide');
       var gl = $id('gameLink');
       if (p.url) { gl.setAttribute('href', p.url); gl.classList.remove('hide'); } else { gl.classList.add('hide'); }
       $id('solution').classList.remove('hide');
       $id('revealBtn').classList.add('hide'); $id('retryBtn').classList.add('hide');
+    }
+
+    /* Where the solution leaves you: past the whole forced line if there is
+       one, past the single move if there is not. */
+    function fenAfterSolution(p) {
+      var c = new Chess();
+      if (!p || !p.fen || !c.load(p.fen)) return null;
+      function play(uci) {
+        return uci && c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+      }
+      var L = lineOf(p);
+      if (L) {
+        for (var i = 0; i < L.length; i++) {
+          if (!play(L[i].uci)) return null;
+          if (L[i].reply && !play(L[i].reply)) return null;
+        }
+      } else if (!play(p.bestUci)) return null;
+      return c.game_over() ? null : c.fen();
     }
 
     function renderPuzzleList() {
@@ -1444,6 +1732,7 @@
           '<span class="dot' + (p.solved ? ' solved' : '') + '"></span>' +
           '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">vs ' + escapeHtml(p.opponent || '?') + '</span>' +
           '<span class="muted" style="font-size:11px;flex:none">' + escapeHtml(relTime(p.date)) + '</span>' +
+          (stepCount(p) > 1 ? '<span class="muted" style="font-size:11px;flex:none">' + stepCount(p) + ' moves</span>' : '') +
           '<span class="muted" style="font-size:12px;flex:none">' + (isMate(p.playedAfterCp) ? 'mate' : '−' + (p.loss / 100).toFixed(1)) + '</span>';
         row.onclick = function () { state.idx = i; showPuzzle(); };
         el.appendChild(row);
@@ -1516,7 +1805,10 @@
     // small hook so a move can be submitted programmatically (used by tests and
     // handy for debugging); the same entry point a drag or a tap arrives at.
     window.__ycp = { current: function () { return curPuzzle(); }, move: submitMove, state: state,
-      refutation: function () { return refute; } };
+      refutation: function () { return refute; },
+      // where in the line the solver is, and the two pieces of machinery that
+      // decide how long a line is — the test suite drives both directly
+      step: function () { return lineStep; }, engine: engine, extendLine: extendLine };
 
     // ---- wire up ----
     function go(delta) {
